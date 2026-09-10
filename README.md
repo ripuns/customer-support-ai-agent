@@ -28,7 +28,7 @@ AmazonHelp, which makes a small, well-defined intent taxonomy easier to build an
 | **Python** | Standard for data/ML pipelines; pandas + scikit-learn ecosystem fits the tabular/text nature of the dataset and baselines. |
 | **kagglehub** | Downloads the Kaggle dataset programmatically using the user's existing Kaggle credentials, so the pipeline is reproducible from a clean clone without manually placing files. |
 | **pandas** | Dataset is a single large CSV (~2.8M rows); pandas is sufficient without introducing a database. |
-| **OpenAI API** | Used for intent classification, grounded reply drafting, and the LLM-as-judge eval. Chosen per current preference; isolated behind a thin wrapper (planned: `src/llm.py`) so the provider can be swapped later without touching calling code. |
+| **Gemini API** (`gemini-3.6-flash`) | Used for intent classification, grounded reply drafting, and the LLM-as-judge eval. Originally built against OpenAI, switched to Gemini per user preference; isolated behind a thin wrapper (`src/llm.py`) so the provider can be swapped again later by changing that one file. |
 | **scikit-learn** | Provides the simple/trivial baselines (e.g. TF-IDF classifier) that the LLM agent is measured against. |
 
 No database or web framework is used — this is a pipeline + evaluation harness, not a served
@@ -41,7 +41,8 @@ application, so a request/response server is out of scope unless a later step ca
   (`apple_triples.csv`, `apple_no_followup.csv`) produced by `scripts/build_threads.py`.
 - `scripts/` — one-off/reproducible pipeline scripts (download, inspection, data prep).
 - `src/` — agent source code. `src/intents.py` defines the 7-intent taxonomy derived from the
-  data (classifier, retrieval, drafting, and escalation policy modules not yet added).
+  data; `src/llm.py` wraps the Gemini API (classifier, retrieval, drafting, and escalation policy
+  modules not yet added).
 - `eval/` — golden evaluation set and evaluation harness — not yet added.
 - `report/` — the written report (problem framing, baselines, failure analysis, decision log) —
   not yet added.
@@ -52,9 +53,11 @@ application, so a request/response server is out of scope unless a later step ca
 1. `pip install -r requirements.txt`
 2. Ensure Kaggle API credentials are configured (`~/.kaggle/kaggle.json` or `KAGGLE_USERNAME`
    / `KAGGLE_KEY` env vars).
-3. `python scripts/download_data.py` — downloads and caches `data/raw/twcs.csv`.
-4. (optional) `python scripts/inspect_brands.py` — reproduces the brand-selection analysis above.
-5. `python scripts/build_threads.py` — reconstructs AppleSupport threads into
+3. Copy `.env.example` to `.env` and set `GEMINI_API_KEY` (get one at
+   [Google AI Studio](https://aistudio.google.com/)).
+4. `python scripts/download_data.py` — downloads and caches `data/raw/twcs.csv`.
+5. (optional) `python scripts/inspect_brands.py` — reproduces the brand-selection analysis above.
+6. `python scripts/build_threads.py` — reconstructs AppleSupport threads into
    `data/processed/apple_triples.csv` (grounding/golden-set source) and
    `data/processed/apple_no_followup.csv` (reference set for failure analysis). Takes ~5 minutes.
 
