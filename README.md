@@ -41,8 +41,9 @@ application, so a request/response server is out of scope unless a later step ca
   (`apple_triples.csv`, `apple_no_followup.csv`) produced by `scripts/build_threads.py`.
 - `scripts/` — one-off/reproducible pipeline scripts (download, inspection, data prep).
 - `src/` — agent source code. `src/intents.py` defines the 7-intent taxonomy derived from the
-  data; `src/llm.py` wraps the Gemini API (classifier, retrieval, drafting, and escalation policy
-  modules not yet added).
+  data; `src/llm.py` wraps the Gemini API; `src/keyword_classifier.py` is a free heuristic
+  classifier used to build the golden-set stratification pool (classifier, retrieval, drafting,
+  and escalation policy modules not yet added).
 - `eval/` — golden evaluation set and evaluation harness — not yet added.
 - `report/` — the written report (problem framing, baselines, failure analysis, decision log) —
   not yet added.
@@ -60,5 +61,10 @@ application, so a request/response server is out of scope unless a later step ca
 6. `python scripts/build_threads.py` — reconstructs AppleSupport threads into
    `data/processed/apple_triples.csv` (grounding/golden-set source) and
    `data/processed/apple_no_followup.csv` (reference set for failure analysis). Takes ~5 minutes.
+7. `python scripts/classify_triples.py` — classifies all rows of `apple_triples.csv` using a free
+   keyword heuristic (`src/keyword_classifier.py`) into `data/processed/apple_triples_classified.csv`,
+   used to stratify-sample the golden evaluation set. Takes seconds (an earlier LLM-based version
+   was abandoned after a live run hit an ~85% failure rate against the Gemini free-tier's
+   5 requests/minute cap — see `src/llm.py`'s rate-limit finding).
 
 Further steps (agent pipeline, eval harness) will be documented here as they are added.

@@ -15,7 +15,7 @@ manually during pipeline setup, not code imported by the agent at run time. Sepa
 
 Scripts read/write relative to the repo root (`data/raw/...`, `data/processed/...`) and are meant
 to be run in order: `download_data.py` first, then `inspect_brands.py` and/or `build_threads.py`
-against the file it produces.
+against the file it produces, then `classify_triples.py` against `build_threads.py`'s output.
 
 ## File responsibilities
 
@@ -69,3 +69,28 @@ against the file it produces.
   `in_response_to_tweet_id` once, turning the per-row follow-up lookup into an O(1) dict access.
   Output is identical in content to what the naive version would have produced; only the lookup
   strategy changed. Runtime: ~5 minutes for the full brand-reply loop.
+
+### `classify_triples.py`
+- **What it does**: Loads all rows of `data/processed/apple_triples.csv` and classifies every
+  `customer_msg` using `src.keyword_classifier.classify_keyword` (instant, no API calls, no
+  sampling needed since it's free). Writes all rows plus a `predicted_intent` column to
+  `data/processed/apple_triples_classified.csv`, and prints the resulting intent distribution.
+- **Purpose**: Produces the classified pool that the (not-yet-added) golden-set sampler stratifies
+  over, so the 150-250 hand-labeled golden examples are pulled roughly evenly across all 7
+  intents instead of mirroring the raw data's skew toward `software_bug`/`battery_performance`.
+  This is a heuristic pre-pass, not a ground-truth labeling — every golden-set example's intent is
+  still confirmed or corrected by hand during labeling.
+- **History — LLM approach abandoned**: This script originally called `src.llm.call_llm`
+  (gemini-3.6-flash) to classify a 300-row sample. A live run was attempted and killed after
+  Google's own usage dashboard showed only a **14.78% success rate** (379 requests, ~85% failing
+  with `429 RESOURCE_EXHAUSTED`) — the free-tier 5-requests/minute cap on this API key made
+  reliable LLM classification infeasible at this scale, and retry/backoff did not fix it because it
+  delays failed retries without throttling the rate new calls are issued at. See `src/llm.py`'s
+  rate-limit finding for the full investigation, including why `gemini-3.1-flash-lite` (no quota
+  cap, but slower and less stable) was evaluated and not adopted either. Switching to the free
+  keyword heuristic removed the rate-limit problem entirely and let the full 5,000 rows be
+  classified (not just a 300-row sample) in seconds.
+- **Depends on**: `data/processed/apple_triples.csv` (produced by `build_threads.py`);
+  `src/keyword_classifier.py`.
+- **Depended on by**: Not yet consumed by other code — will be the input to golden-set sampling
+  once added.
