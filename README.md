@@ -40,7 +40,8 @@ application, so a request/response server is out of scope unless a later step ca
   `scripts/download_data.py`); `data/processed/` holds the reconstructed AppleSupport threads
   (`apple_triples.csv`, `apple_no_followup.csv`) produced by `scripts/build_threads.py`.
 - `scripts/` — one-off/reproducible pipeline scripts (download, inspection, data prep).
-- `src/` — agent source code (classifier, retrieval, drafting, escalation policy) — not yet added.
+- `src/` — agent source code. `src/intents.py` defines the 7-intent taxonomy derived from the
+  data (classifier, retrieval, drafting, and escalation policy modules not yet added).
 - `eval/` — golden evaluation set and evaluation harness — not yet added.
 - `report/` — the written report (problem framing, baselines, failure analysis, decision log) —
   not yet added.
