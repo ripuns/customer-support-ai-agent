@@ -13,9 +13,9 @@ manually during pipeline setup, not code imported by the agent at run time. Sepa
 
 ## How
 
-Scripts read/write relative to the repo root (`data/raw/...`) and are meant to be run in order:
-`download_data.py` first, then `inspect_brands.py` (or any later prep script) against the file it
-produces.
+Scripts read/write relative to the repo root (`data/raw/...`, `data/processed/...`) and are meant
+to be run in order: `download_data.py` first, then `inspect_brands.py` and/or `build_threads.py`
+against the file it produces.
 
 ## File responsibilities
 
@@ -42,3 +42,30 @@ produces.
   recorded in the root README. Safe to re-run for reference but not part of the live pipeline.
 - **Known dead code**: `id_to_row` (line 26) is computed but unused. Left as-is per scope rules —
   flagged for the user to decide whether to remove.
+
+### `build_threads.py`
+- **What it does**: Loads `data/raw/twcs.csv` and reconstructs AppleSupport support threads. For
+  every AppleSupport reply, looks up the customer message it responded to (via an indexed
+  `tweet_id` lookup) and checks whether any customer tweet responded back to that brand reply
+  (via a pre-grouped `in_response_to_tweet_id` -> rows map, built once up front). Text is cleaned
+  (`@handles`/URLs stripped, whitespace collapsed) via `clean_text`. Produces two outputs:
+  - `data/processed/apple_triples.csv` — customer message -> AppleSupport reply -> customer
+    follow-up, for records where a follow-up exists. Deduplicated, then subsampled to
+    `TRIPLE_SAMPLE_SIZE` (5,000, seeded) rows.
+  - `data/processed/apple_no_followup.csv` — customer message -> AppleSupport reply pairs with no
+    customer follow-up. Deduplicated, kept at full count (not subsampled).
+- **Purpose**: `apple_triples.csv` is the primary dataset for grounding the agent's replies and
+  sampling the golden evaluation set — a full 3-turn arc is the closest proxy in this dataset for
+  "the brand's historical resolution actually landed with the customer." `apple_no_followup.csv`
+  is intentionally kept aside (not used for grounding/retrieval) as a reference dataset for the
+  report's failure-analysis discussion of reply patterns that may correlate with customer
+  abandonment — see root README.
+- **Depends on**: `data/raw/twcs.csv` (produced by `download_data.py`); `pandas`.
+- **Depended on by**: Not yet consumed by other code — will be the input to the retrieval index
+  and golden-set sampling steps once added.
+- **Performance note**: An earlier version of this script scanned the full 2.8M-row dataframe
+  inside the per-brand-reply loop to find follow-ups (O(n×m), effectively unbounded on this
+  machine). It was killed mid-run and rewritten to pre-group inbound tweets by
+  `in_response_to_tweet_id` once, turning the per-row follow-up lookup into an O(1) dict access.
+  Output is identical in content to what the naive version would have produced; only the lookup
+  strategy changed. Runtime: ~5 minutes for the full brand-reply loop.

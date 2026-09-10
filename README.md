@@ -36,8 +36,9 @@ application, so a request/response server is out of scope unless a later step ca
 
 ## Repository layout
 
-- `data/` — raw and processed dataset files (raw CSV is gitignored; regenerate via
-  `scripts/download_data.py`).
+- `data/` — raw and processed dataset files. `data/raw/` is gitignored (regenerate via
+  `scripts/download_data.py`); `data/processed/` holds the reconstructed AppleSupport threads
+  (`apple_triples.csv`, `apple_no_followup.csv`) produced by `scripts/build_threads.py`.
 - `scripts/` — one-off/reproducible pipeline scripts (download, inspection, data prep).
 - `src/` — agent source code (classifier, retrieval, drafting, escalation policy) — not yet added.
 - `eval/` — golden evaluation set and evaluation harness — not yet added.
@@ -52,5 +53,8 @@ application, so a request/response server is out of scope unless a later step ca
    / `KAGGLE_KEY` env vars).
 3. `python scripts/download_data.py` — downloads and caches `data/raw/twcs.csv`.
 4. (optional) `python scripts/inspect_brands.py` — reproduces the brand-selection analysis above.
+5. `python scripts/build_threads.py` — reconstructs AppleSupport threads into
+   `data/processed/apple_triples.csv` (grounding/golden-set source) and
+   `data/processed/apple_no_followup.csv` (reference set for failure analysis). Takes ~5 minutes.
 
 Further steps (agent pipeline, eval harness) will be documented here as they are added.
