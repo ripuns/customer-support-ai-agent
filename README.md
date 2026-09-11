@@ -44,7 +44,8 @@ application, so a request/response server is out of scope unless a later step ca
   data; `src/llm.py` wraps the Gemini API; `src/keyword_classifier.py` is a free heuristic
   classifier used to build the golden-set stratification pool (classifier, retrieval, drafting,
   and escalation policy modules not yet added).
-- `eval/` — golden evaluation set and evaluation harness — not yet added.
+- `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (produced by
+  `scripts/sample_golden_set.py`, pending hand-labeling). Evaluation harness not yet added.
 - `report/` — the written report (problem framing, baselines, failure analysis, decision log) —
   not yet added.
 - `notebooks/` — exploratory notebooks — not yet added.
@@ -66,5 +67,8 @@ application, so a request/response server is out of scope unless a later step ca
    used to stratify-sample the golden evaluation set. Takes seconds (an earlier LLM-based version
    was abandoned after a live run hit an ~85% failure rate against the Gemini free-tier's
    5 requests/minute cap — see `src/llm.py`'s rate-limit finding).
+8. `python scripts/sample_golden_set.py` — stratified-samples 25 examples per intent (175 total)
+   into `eval/golden_set.csv`. This file is then hand-labeled (intent confirmation, auto/escalate
+   decision, escalate reason, reply quality note) — see `eval/README.md`.
 
 Further steps (agent pipeline, eval harness) will be documented here as they are added.

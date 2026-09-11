@@ -5,6 +5,11 @@
 Standalone, reproducible scripts that prepare and inspect the raw dataset before it reaches the
 agent pipeline. Run directly with `python scripts/<name>.py` from the repo root.
 
+One file here, `_draft_labels.py`, is not part of this reproducible pipeline — it's a one-off audit
+record of assistant-drafted golden-set labels. It's underscore-prefixed to signal that, and is
+documented in `eval/README.md` (alongside `eval/golden_set.csv`, the file it actually modifies)
+rather than below with the rest of this directory's reproducible scripts.
+
 ## Why
 
 Kept separate from `src/` because these are one-off/setup operations (download, exploration) run
@@ -92,5 +97,20 @@ against the file it produces, then `classify_triples.py` against `build_threads.
   classified (not just a 300-row sample) in seconds.
 - **Depends on**: `data/processed/apple_triples.csv` (produced by `build_threads.py`);
   `src/keyword_classifier.py`.
-- **Depended on by**: Not yet consumed by other code — will be the input to golden-set sampling
-  once added.
+- **Depended on by**: `sample_golden_set.py`.
+
+### `sample_golden_set.py`
+- **What it does**: Loads `data/processed/apple_triples_classified.csv`, and for each of the 7
+  `INTENT_LABELS` draws a seeded random sample of `PER_INTENT_SAMPLE_SIZE` (25) rows where
+  `predicted_intent` matches that label (warns and takes the full bucket if fewer than 25
+  candidates exist — did not happen on the actual run; smallest bucket had 94). Concatenates and
+  shuffles the 7 per-intent samples, renames `predicted_intent` to `suggested_intent`, and adds
+  four empty columns (`intent_label`, `auto_or_escalate`, `escalate_reason`,
+  `reply_quality_note`) for manual labeling. Writes the result to `eval/golden_set.csv`.
+- **Purpose**: Produces the golden evaluation set required by the assignment (150-250 hand-labeled
+  examples) with even representation across all 7 intents, rather than mirroring the raw data's
+  heavy skew toward `software_bug`/`battery_performance`.
+- **Depends on**: `data/processed/apple_triples_classified.csv` (produced by
+  `classify_triples.py`); `src/intents.py`.
+- **Depended on by**: Not yet consumed by other code — `eval/golden_set.csv` is hand-labeled next,
+  then consumed by the (not yet added) evaluation harness.
