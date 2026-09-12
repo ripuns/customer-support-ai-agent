@@ -43,8 +43,9 @@ application, so a request/response server is out of scope unless a later step ca
 - `src/` — agent source code. `src/intents.py` defines the 7-intent taxonomy derived from the
   data; `src/llm.py` wraps the Gemini API (with real rate-limiting, not just retry/backoff);
   `src/keyword_classifier.py` is a free heuristic classifier used to build the golden-set
-  stratification pool; `src/classifier.py` is the agent's real LLM-based intent classifier
-  (retrieval, drafting, and escalation policy modules not yet added).
+  stratification pool; `src/classifier.py` is the agent's real LLM-based intent classifier;
+  `src/retrieval.py` is a TF-IDF index over historical resolved threads for grounding drafted
+  replies (drafting and escalation policy modules not yet added).
 - `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (34 rows
   hand-labeled, 141 drafted by the assistant and pending human review — see `eval/README.md`).
   Evaluation harness not yet added.

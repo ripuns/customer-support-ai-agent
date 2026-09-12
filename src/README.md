@@ -120,3 +120,30 @@ auto-handle vs. escalate.
 - **Depends on**: `src/intents.py`, `src/llm.py`.
 - **Depended on by**: Not yet consumed by other code — will be used by the (not yet added) drafter,
   escalation policy, and evaluation harness.
+
+### `retrieval.py`
+- **What it does**: `RetrievalIndex` loads `data/processed/apple_triples.csv` (dropping the 29 rows
+  with NaN `customer_msg`), builds a TF-IDF matrix over `customer_msg` (scikit-learn
+  `TfidfVectorizer`, English stopwords removed, capped at 5,000 features) at construction time, and
+  exposes `.query(customer_msg, k=3)` — cosine similarity against the matrix, returning the top-k
+  historical `{customer_msg, brand_reply, customer_followup, similarity}` triples, most similar
+  first.
+- **Purpose**: This is what "grounds" the agent's drafted replies in how AppleSupport has
+  historically resolved similar issues, per the assignment's core requirement — the drafter (not
+  yet added) will feed these retrieved triples to the LLM as context rather than letting it
+  generate a reply from general knowledge alone.
+- **Why TF-IDF instead of an embeddings API**: Embedding all 5,000 `apple_triples.csv` rows through
+  the Gemini embeddings API would hit the same free-tier rate-limit wall documented in `llm.py`'s
+  rate-limit finding, at 5,000x the scale that made `scripts/classify_triples.py` infeasible — would
+  take many hours even with correct throttling. TF-IDF is local, free, and instant (index build:
+  ~0.1s over ~5,000 rows) at the cost of missing paraphrases with no word overlap (a known,
+  documented limitation, not an oversight).
+- **Verified against real data**: A battery-drain query returned a near-identical historical
+  complaint at 0.959 cosine similarity with a directly relevant reply. A less common
+  billing/subscription-refund query returned lower but still topically relevant matches
+  (0.36-0.39 similarity) — reflecting that billing intents are more sparsely represented in this
+  dataset than the dominant battery/bug complaints (see `intents.py`'s taxonomy notes on data
+  skew), not a retrieval bug.
+- **Depends on**: `data/processed/apple_triples.csv` (produced by `build_threads.py`);
+  `scikit-learn`.
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added) drafter.
