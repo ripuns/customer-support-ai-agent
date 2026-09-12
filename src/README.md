@@ -146,4 +146,36 @@ auto-handle vs. escalate.
   skew), not a retrieval bug.
 - **Depends on**: `data/processed/apple_triples.csv` (produced by `build_threads.py`);
   `scikit-learn`.
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added) drafter.
+- **Depended on by**: `drafter.py`.
+- **Eval leakage warning (important, not yet resolved)**: `eval/golden_set.csv` was sampled *from*
+  `apple_triples.csv`, so every golden-set `customer_msg` exists verbatim inside this retrieval
+  index — querying with a golden-set message will always find itself first at similarity 1.00 and
+  return its own real historical reply as a "retrieved example." This makes grounding look
+  artificially perfect during evaluation (the drafter can effectively see the answer). The
+  evaluation harness (not yet added) must exclude each golden-set row's own entry from its
+  retrieval results before scoring, or the reply-quality numbers will be misleading — this is
+  exactly the kind of thing that belongs in the report's mandatory "what's misleading about my
+  headline number" section.
+
+### `drafter.py`
+- **What it does**: `draft_reply(customer_msg, intent, retrieval_index, k=3)` — queries the given
+  `RetrievalIndex` for the top-k similar historical triples, filters them to
+  `MIN_SIMILARITY_TO_USE` (0.15) so weak/irrelevant matches aren't used as grounding, builds a
+  system prompt naming the classified intent (with its `INTENTS` description) and formatting the
+  filtered examples as few-shot context, then calls `src.llm.call_llm` (temperature 0.3, some
+  variation allowed since this is generative, unlike the classifier). Returns
+  `{"reply": str, "grounded_on": list[dict]}` — `grounded_on` is the actual filtered examples used,
+  so callers/eval code can see (and score) what grounding was available for this reply, including
+  the empty-list case where nothing sufficiently similar was found.
+- **Purpose**: This is the "drafts a reply grounded in how the brand has historically resolved
+  similar issues" requirement — the prompt explicitly instructs the model not to copy examples
+  verbatim or invent unlisted specifics (case numbers, links), and to fall back to AppleSupport's
+  real pattern of directing to DM when a public reply can't resolve the issue.
+- **Verified against real data**: Tested end-to-end against golden-set row 1 (an AppleCare/Apple
+  Store complaint) — retrieved 3 examples (top similarity 1.00, since this exact message exists in
+  the source `apple_triples.csv` the index is built from — see `retrieval.py`'s eval leakage
+  warning), and the drafted reply's opening closely mirrored the real historical reply's tone
+  ("We'd like to look into this with you..."), then appropriately added a DM handoff.
+- **Depends on**: `src/intents.py`, `src/llm.py`, `src/retrieval.py`.
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
+  evaluation harness.
