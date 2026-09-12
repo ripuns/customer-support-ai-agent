@@ -14,14 +14,17 @@ from google.genai import types
 
 load_dotenv()
 
-# gemini-3.6-flash's free tier caps at 5 requests/minute (429 resource_exhausted errors).
-# Acceptable for small pool sizes(a few hundred calls) especially with
-# the retry/backoff below turning 429s into a slow-but-successful call
-# instead of a hard failure. gemini-3.1-flash-lite has no such quota cap on
-# this key but is slower per-call (~7s) and prone to transient 503s.
+# gemini-3.6-flash's free tier caps at 5 requests/minute (429 resource_exhausted errors)
+# a live run only achieved a 14.78% success rate because backoff delays a failed call's retries 
+# but does not throttle the rate new calls are issued at. MIN_SECONDS_BETWEEN_CALLS below is the
+# actual fix: it enforces the request rate itself, before any call is made, so this
+# wrapper is now safe to use in a loop over many examples
+
 DEFAULT_MODEL = "gemini-3.6-flash"
+MIN_SECONDS_BETWEEN_CALLS = 12.5  # slightly over 60/5=12s to leave margin
 
 _client = None
+_last_call_time = None
 
 
 def _get_client() -> genai.Client:
@@ -37,6 +40,17 @@ def _get_client() -> genai.Client:
     return _client
 
 
+def _throttle():
+    """Block until at least MIN_SECONDS_BETWEEN_CALLS has passed since the last call."""
+    global _last_call_time
+    if _last_call_time is not None:
+        elapsed = time.monotonic() - _last_call_time
+        remaining = MIN_SECONDS_BETWEEN_CALLS - elapsed
+        if remaining > 0:
+            time.sleep(remaining)
+    _last_call_time = time.monotonic()
+
+
 MAX_RETRIES = 4
 RETRY_BASE_DELAY_SECONDS = 5
 
@@ -44,11 +58,14 @@ RETRY_BASE_DELAY_SECONDS = 5
 def call_llm(system: str, user: str, model: str = DEFAULT_MODEL, temperature: float = 0.0) -> str:
     """Send a single system+user turn to the LLM and return the text response.
 
-    Retries with 503 high-demand, 429 rate limit up to MAX_RETRIES times before raising.
+    Throttles to MIN_SECONDS_BETWEEN_CALLS between requests (enforcing the actual
+    5-requests/minute free-tier limit) before every call, then retries with backoff
+    on transient 429/503 errors up to MAX_RETRIES times as a second line of defense.
     """
     client = _get_client()
     last_error = None
     for attempt in range(MAX_RETRIES):
+        _throttle()
         try:
             response = client.models.generate_content(
                 model=model,
