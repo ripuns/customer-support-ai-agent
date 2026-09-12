@@ -41,11 +41,13 @@ application, so a request/response server is out of scope unless a later step ca
   (`apple_triples.csv`, `apple_no_followup.csv`) produced by `scripts/build_threads.py`.
 - `scripts/` — one-off/reproducible pipeline scripts (download, inspection, data prep).
 - `src/` — agent source code. `src/intents.py` defines the 7-intent taxonomy derived from the
-  data; `src/llm.py` wraps the Gemini API; `src/keyword_classifier.py` is a free heuristic
-  classifier used to build the golden-set stratification pool (classifier, retrieval, drafting,
-  and escalation policy modules not yet added).
-- `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (produced by
-  `scripts/sample_golden_set.py`, pending hand-labeling). Evaluation harness not yet added.
+  data; `src/llm.py` wraps the Gemini API (with real rate-limiting, not just retry/backoff);
+  `src/keyword_classifier.py` is a free heuristic classifier used to build the golden-set
+  stratification pool; `src/classifier.py` is the agent's real LLM-based intent classifier
+  (retrieval, drafting, and escalation policy modules not yet added).
+- `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (34 rows
+  hand-labeled, 141 drafted by the assistant and pending human review — see `eval/README.md`).
+  Evaluation harness not yet added.
 - `report/` — the written report (problem framing, baselines, failure analysis, decision log) —
   not yet added.
 - `notebooks/` — exploratory notebooks — not yet added.

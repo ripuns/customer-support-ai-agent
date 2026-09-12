@@ -54,27 +54,27 @@ auto-handle vs. escalate.
   then switched to Gemini per user request. The `google-genai` package was added to
   `requirements.txt` in place of `openai`, which was removed since both providers are not
   supported simultaneously.
-- **Rate-limit finding (important, still open)**: This API key's free tier caps `gemini-3.6-flash`
-  at 5 requests/minute (`429 RESOURCE_EXHAUSTED`, confirmed empirically). The retry/backoff above
-  was added to absorb this, but a real 300-call run against Google's own usage dashboard showed
-  only a **14.78% success rate** (379 requests, ~85% failing with 429) — retry/backoff delays a
-  failing call's *retries*, it does not throttle the *rate new calls are issued at*, so under
-  sustained load the loop kept submitting faster than 5/min and mostly exhausted `MAX_RETRIES`
-  before succeeding. The run was killed rather than left to finish on mostly-failed data. A
-  candidate alternative, `gemini-3.1-flash-lite`, has no quota cap on this key but is slower
-  per-call (~7s vs ~2-4s) and prone to transient `503` "high demand" errors — evaluated but not
-  adopted. **Net effect**: this wrapper is not currently safe to call in a loop of more than a
-  handful of requests without an actual rate limiter (e.g. a token-bucket enforcing >=12s between
-  calls), which has not been built. `scripts/classify_triples.py` no longer uses this wrapper at
-  all — see `keyword_classifier.py` below for what replaced it.
+- **Rate-limit finding and fix**: This API key's free tier caps `gemini-3.6-flash` at 5
+  requests/minute (`429 RESOURCE_EXHAUSTED`, confirmed empirically). A retry/backoff-only version of
+  this wrapper was tried first and failed badly: a real 300-call run against Google's own usage
+  dashboard showed only a **14.78% success rate** (379 requests, ~85% failing with 429), because
+  backoff delays a failing call's *retries* without throttling the *rate new calls are issued at* —
+  under sustained load the loop kept submitting faster than 5/min. The actual fix is
+  `_throttle()`/`MIN_SECONDS_BETWEEN_CALLS` (12.5s, just over the 12s that 5/min implies): it blocks
+  before every call so the request rate itself never exceeds the quota, with retry/backoff kept as
+  a second line of defense for genuinely transient errors. Verified with a live 3-call test showing
+  consistent ~12.6s spacing and no 429s. A candidate alternative, `gemini-3.1-flash-lite`, has no
+  quota cap on this key but is slower per-call (~7s vs ~2-4s) and prone to transient `503` "high
+  demand" errors — evaluated but not adopted. **Cost of the fix**: every call now takes at least
+  12.5s, so a loop over the 175-row golden set takes ~37 minutes minimum — acceptable for a one-off
+  eval run, not for anything latency-sensitive.
 - **Known limitation**: The SDK prints a benign stderr warning about automatic function calling
   (AFC) on every call, recommending the Chat API pattern instead of `generate_content`. Left as-is
   since it doesn't affect correctness and switching to the Chat API is a larger change than this
   wrapper's current scope.
 - **Depends on**: `google-genai`, `python-dotenv`; `GEMINI_API_KEY` must be set in `.env`.
-- **Depended on by**: Not currently used by any script (see rate-limit finding above). Will be
-  imported by the classifier, drafter, and escalation policy modules once added — those call sites
-  will need real rate-limiting, not just retry/backoff, if they run in a loop over many examples.
+- **Depended on by**: `classifier.py`. Will also be imported by the drafter and escalation policy
+  modules once added.
 
 ### `keyword_classifier.py`
 - **What it does**: `classify_keyword(msg)` — a substring/keyword-match heuristic that assigns one
@@ -99,3 +99,24 @@ auto-handle vs. escalate.
 - **Depends on**: `src/intents.py` (for `INTENT_LABELS`, and an assertion that every rule label is
   a real intent).
 - **Depended on by**: `scripts/classify_triples.py`.
+
+### `classifier.py`
+- **What it does**: `classify_intent(customer_msg)` — the agent's real intent classifier. Sends a
+  few-shot prompt (built from `src.intents.INTENTS`) through `src.llm.call_llm` and parses a
+  two-line `INTENT: <label>` / `CONFIDENCE: <0-100>` response via regex. Returns
+  `{"intent": str, "confidence": int}`. Returns `{"intent": "unknown", "confidence": 0}` for
+  empty/invalid input or if the model's response can't be parsed into a recognized label —
+  callers should treat `"unknown"` as a signal to escalate rather than guess.
+- **Purpose**: This is the actual LLM-based classifier the agent uses at inference time (as opposed
+  to `keyword_classifier.py`, which only exists to build the golden-set sampling pool). Returning a
+  confidence score alongside the label is deliberate: the escalation policy (not yet added) needs
+  low classifier confidence as one of its inputs for deciding auto vs. escalate.
+- **Verified against real data**: Spot-tested against 5 sampled `eval/golden_set.csv` rows —
+  correct format parsing and confidence scores on every call, no 429s (throttling in `llm.py`
+  held). 2/5 matched the hand-labeled `intent_label` on this tiny sample; the mismatches were on
+  genuinely ambiguous messages (e.g. a complaint mixing a store-visit anecdote with a software
+  complaint) rather than clear classifier errors. Real accuracy numbers come from the full
+  evaluation harness (not yet added) against all 175 golden-set rows, not from this spot check.
+- **Depends on**: `src/intents.py`, `src/llm.py`.
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added) drafter,
+  escalation policy, and evaluation harness.
