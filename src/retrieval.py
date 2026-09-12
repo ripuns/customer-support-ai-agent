@@ -1,15 +1,14 @@
 """Retrieval index over historical resolved AppleSupport threads.
 
 Given an incoming customer message, finds the most similar historical
-customer_msg values from data/processed/apple_triples.csv and returns
-their (customer_msg, brand_reply, customer_followup) triples -- these are
+customer_msg values from apple_triples.csv and returns their 
+(customer_msg, brand_reply, customer_followup) triples -- these are
 what the drafter grounds its reply generation in.
 
-Uses TF-IDF + cosine similarity (scikit-learn) rather than an embeddings
-API: free, instant, no rate limits, and avoids repeating the Gemini
-free-tier throttling problem at 5,000x the scale (see src/llm.py's rate-limit
-finding). Trades off some semantic matching quality (won't catch
-paraphrases with no word overlap) for full local reproducibility.
+Uses TF-IDF + cosine similarity (scikit-learn) rather than an embeddings API: 
+free, instant, no rate limits, and avoids repeating the gemini free-tier throttling problem 
+(see src/llm.py's rate-limit finding).Trades off some semantic matching quality 
+(won't catch paraphrases with no word overlap) for full local reproducibility.
 """
 from pathlib import Path
 
