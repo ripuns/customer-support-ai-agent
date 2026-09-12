@@ -15,17 +15,13 @@ and burned most of the quota on retries (see src/llm.py's rate-limit note
 and scripts/README.md for the full investigation).
 
 Keywords were chosen by checking real match counts against
-data/processed/apple_triples.csv (all 7 buckets found 100+ matches) rather
-than guessed blind.
+data/processed/apple_triples.csv (all 7 buckets found 100+ matches).
 """
 import re
 
 from src.intents import INTENT_LABELS
 
-# Checked in this order; first match wins. Order matters for overlapping
-# terms (e.g. "screen" alone could be a software glitch or a cracked
-# hardware screen -- hardware-specific phrasing is checked before the
-# generic software_bug fallback catches it).
+# Checked in this order; first match wins. Order matters for overlapping terms.
 KEYWORD_RULES = [
     ("account_security", [
         "apple id", "password", "verification code", "2fa", "two-factor",
@@ -61,13 +57,7 @@ DEFAULT_INTENT = "software_bug"
 
 
 def classify_keyword(msg: str) -> str:
-    """Return a heuristic intent label for a customer message.
-
-    Case-insensitive substring match against KEYWORD_RULES, first match
-    wins. Falls back to DEFAULT_INTENT (software_bug) since that is the
-    dominant real category in this dataset and most unmatched messages are
-    in fact bug/crash/glitch complaints (see src/intents.py taxonomy notes).
-    """
+    """Return a heuristic intent label for a customer message"""
     if not isinstance(msg, str) or not msg.strip():
         return "unknown"
     text = msg.lower()
