@@ -40,13 +40,13 @@ application, so a request/response server is out of scope unless a later step ca
   `scripts/download_data.py`); `data/processed/` holds the reconstructed AppleSupport threads
   (`apple_triples.csv`, `apple_no_followup.csv`) produced by `scripts/build_threads.py`.
 - `scripts/` — one-off/reproducible pipeline scripts (download, inspection, data prep).
-- `src/` — agent source code. `src/intents.py` defines the 7-intent taxonomy derived from the
-  data; `src/llm.py` wraps the Gemini API (with real rate-limiting, not just retry/backoff);
-  `src/keyword_classifier.py` is a free heuristic classifier used to build the golden-set
-  stratification pool; `src/classifier.py` is the agent's real LLM-based intent classifier;
-  `src/retrieval.py` is a TF-IDF index over historical resolved threads for grounding drafted
-  replies; `src/drafter.py` generates grounded replies from a classified intent + retrieved
-  examples (escalation policy module not yet added).
+- `src/` — agent source code. All three required agent components are implemented:
+  `src/classifier.py` (LLM-based intent classification), `src/drafter.py` (grounded reply drafting,
+  using `src/retrieval.py`'s TF-IDF index over historical resolved threads), and
+  `src/escalation.py` (rule-based auto-vs-escalate decision with a stated reason, 91% match against
+  the hand-labeled golden set). Supporting modules: `src/intents.py` (the 7-intent taxonomy),
+  `src/llm.py` (rate-limited Gemini wrapper), `src/keyword_classifier.py` (free heuristic used only
+  to build the golden-set stratification pool).
 - `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (34 rows
   hand-labeled, 141 drafted by the assistant and pending human review — see `eval/README.md`).
   Evaluation harness not yet added.

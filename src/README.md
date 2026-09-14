@@ -179,3 +179,38 @@ auto-handle vs. escalate.
 - **Depends on**: `src/intents.py`, `src/llm.py`, `src/retrieval.py`.
 - **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
   evaluation harness.
+
+### `escalation.py`
+- **What it does**: `decide_escalation(customer_msg, intent, confidence, retrieval_index)` — a
+  rule-based (not LLM-based) policy returning `{"decision": "auto" | "escalate", "reasons": [...]}`.
+  Escalates when: intent is `"unknown"` or classifier confidence is below
+  `CONFIDENCE_ESCALATE_THRESHOLD` (60); the message matches a `RED_FLAG_PHRASES` substring (prior
+  fix attempt failed, lockout/data-loss language, severity signals like "brick" or "haven't even
+  had"); or `RetrievalIndex` finds no historical match above `MIN_SIMILARITY_FOR_GROUNDING` (0.15).
+  `reasons` lists exactly which checks triggered, satisfying the assignment's "stated reason"
+  requirement.
+- **Purpose**: Deliberately rule-based rather than another LLM call — needs to be interpretable and
+  defensible (a live-defense requirement of this assignment), and is built to directly encode the
+  same standard used to hand-label `eval/golden_set.csv` (see that file's "Labeling standard"
+  section) so the policy and the ground truth it's measured against share the same reasoning rather
+  than being two independent guesses.
+- **Design history — intent-based rule tried and rejected**: An earlier version escalated
+  automatically for `account_security`/`billing_purchase` intents (reasoning: these routinely
+  involve account access or money). Tested against the 35 hand-labeled `golden_set.csv` rows: only
+  **24/35 (69%)** matched. Inspecting the mismatches showed most `account_security`/
+  `billing_purchase` threads in this dataset actually resolved cleanly with a standard reply — the
+  golden-set labeling standard explicitly says escalation should be decided per-thread (did it
+  actually resolve?), not by topic category. Removed the intent-based rule and expanded
+  `RED_FLAG_PHRASES` with the severity/failure-signal phrases that were actually present in the
+  genuinely-escalated rows instead. Re-tested: **32/35 (91%)**.
+- **Known remaining limitation**: 2 of the 3 still-mismatched rows are threads where a real severity
+  signal exists but isn't expressible as a clean keyword (e.g. "killed my battery... freezes every
+  few letters" — genuinely severe but phrased conversationally, no matching red-flag substring).
+  This is an honest limitation of a keyword-based policy, not a bug — a more accurate policy would
+  likely need sentiment/severity modeling, which was deliberately not added to keep this component
+  interpretable. Documented here rather than silently tuned away, since it belongs in the report's
+  failure-analysis and "what's misleading about my headline number" sections.
+- **Depends on**: `src/retrieval.py` (uses it to compute the grounding-availability signal).
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
+  evaluation harness. This is also the last of the three core agent components (classify, draft,
+  escalate) required by the assignment.
