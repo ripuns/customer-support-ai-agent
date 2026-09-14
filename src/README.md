@@ -214,3 +214,50 @@ auto-handle vs. escalate.
 - **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
   evaluation harness. This is also the last of the three core agent components (classify, draft,
   escalate) required by the assignment.
+
+### `baseline_trivial.py`
+- **What it does**: The "trivial baseline" required by the assignment ("results vs. at least two
+  baselines: a trivial one and a simple one"). `trivial_classify` always returns
+  `MAJORITY_INTENT` (`"software_bug"`, 77% of the classified `apple_triples.csv` pool);
+  `trivial_draft` always returns one fixed `GENERIC_REPLY`; `trivial_escalate` always returns
+  `FIXED_DECISION` (`"auto"`). No learning, no retrieval, no LLM calls — this is the floor every
+  other component (simple baseline, real agent) needs to meaningfully beat.
+- **Why always-auto rather than always-escalate**: Either is a valid trivial choice; always-auto
+  was picked so the trivial baseline's escalation precision/recall are both meaningfully
+  measurable against the golden set (always-escalate would make recall trivially 100% and give no
+  useful comparison point).
+- **Preview numbers (not final — golden set is still partially `[DRAFT]`)**: Against the current
+  175-row `eval/golden_set.csv`: intent accuracy 38/175 (21.7%), escalation accuracy 105/175
+  (60.0%). The escalation number looks deceptively decent only because `auto` happens to be the
+  majority label in this labeled set (~58%) — flagged here as exactly the kind of number that
+  needs the report's mandatory "what's misleading about my headline number" treatment: a real
+  agent beating 60% by a small margin would not actually be demonstrating real escalation
+  judgment.
+- **Depends on**: Nothing (hardcoded constants only).
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
+  evaluation harness.
+
+### `baseline_simple.py`
+- **What it does**: The "simple baseline" required by the assignment. `simple_classify` uses the
+  real `keyword_classifier.classify_keyword` (not a fixed guess). `simple_draft` returns one of
+  7 hand-written `TEMPLATE_REPLIES`, one per intent (plus an `"unknown"` fallback), rather than a
+  single generic reply. `simple_escalate` uses `HIGH_RISK_INTENTS` (`account_security`,
+  `billing_purchase` always escalate, everything else auto) — deliberately the same rule
+  `escalation.py` tried first and rejected (see that file's design history), reused here on
+  purpose as a realistic "naive first attempt" rather than a strawman.
+- **Purpose**: Sits strictly between the trivial baseline (the floor) and the real agent, so results
+  show a 3-point comparison (trivial / simple / real), not just two.
+- **Preview numbers (not final — golden set is still partially `[DRAFT]`)**: Against the current
+  175-row `eval/golden_set.csv`: intent accuracy 141/175 (80.6%) — notably strong, and verified not
+  to be circular (the 35 hand-labeled rows alone score even higher, 30/35 = 85.7%, vs. 111/140 =
+  79.3% on the assistant-drafted rows, so the keyword classifier isn't just agreeing with its own
+  earlier `suggested_intent` guesses that seeded some of the drafts). Escalation accuracy 105/175
+  (60.0%) — identical to the trivial baseline's escalation accuracy, but for a different and worse
+  reason: precision 0.50 / recall 0.36 on the escalate class (TP=25, FP=25, TN=80, FN=45), meaning
+  it's wrong half the time it does escalate and misses nearly two-thirds of real escalation cases,
+  while `baseline_trivial.py`'s always-auto gets the same accuracy by design (it never even tries).
+  This equal-accuracy-different-reasons result is a concrete, ready-made example for the report's
+  "what's misleading about my headline number" section.
+- **Depends on**: `src/keyword_classifier.py`, `src/intents.py`.
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
+  evaluation harness.

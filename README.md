@@ -44,9 +44,12 @@ application, so a request/response server is out of scope unless a later step ca
   `src/classifier.py` (LLM-based intent classification), `src/drafter.py` (grounded reply drafting,
   using `src/retrieval.py`'s TF-IDF index over historical resolved threads), and
   `src/escalation.py` (rule-based auto-vs-escalate decision with a stated reason, 91% match against
-  the hand-labeled golden set). Supporting modules: `src/intents.py` (the 7-intent taxonomy),
-  `src/llm.py` (rate-limited Gemini wrapper), `src/keyword_classifier.py` (free heuristic used only
-  to build the golden-set stratification pool).
+  the hand-labeled golden set). Both required baselines are implemented too:
+  `src/baseline_trivial.py` (fixed majority-class prediction, no learning) and
+  `src/baseline_simple.py` (keyword classifier + template replies + a naive intent-risk escalation
+  rule). Supporting modules: `src/intents.py` (the 7-intent taxonomy), `src/llm.py` (rate-limited
+  Gemini wrapper), `src/keyword_classifier.py` (used by both the golden-set stratification pool and
+  the simple baseline).
 - `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (34 rows
   hand-labeled, 141 drafted by the assistant and pending human review — see `eval/README.md`).
   Evaluation harness not yet added.
