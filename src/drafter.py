@@ -38,7 +38,13 @@ def _format_examples(retrieved: list[dict]) -> str:
     return "\n\n".join(blocks)
 
 
-def draft_reply(customer_msg: str, intent: str, retrieval_index: RetrievalIndex, k: int = 3) -> dict:
+def draft_reply(
+    customer_msg: str,
+    intent: str,
+    retrieval_index: RetrievalIndex,
+    k: int = 3,
+    exclude_exact_match: bool = False,
+) -> dict:
     """Draft a grounded reply for customer_msg, classified as intent.
 
     Returns {"reply": str, "grounded_on": list[dict]} where grounded_on is
@@ -47,8 +53,12 @@ def draft_reply(customer_msg: str, intent: str, retrieval_index: RetrievalIndex,
     nothing sufficiently similar was found, in which case the reply is
     drafted without grounding examples and this should be treated as a
     weaker-confidence draft by callers).
+
+    exclude_exact_match: pass True during evaluation against golden_set.csv,
+    since those messages exist verbatim in the retrieval index -- see
+    RetrievalIndex.query's docstring for why.
     """
-    retrieved = retrieval_index.query(customer_msg, k=k)
+    retrieved = retrieval_index.query(customer_msg, k=k, exclude_exact_match=exclude_exact_match)
     grounded_on = [r for r in retrieved if r["similarity"] >= MIN_SIMILARITY_TO_USE]
 
     intent_description = INTENTS.get(intent, "No description available.")

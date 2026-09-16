@@ -49,6 +49,7 @@ def decide_escalation(
     intent: str,
     confidence: int,
     retrieval_index: RetrievalIndex,
+    exclude_exact_match: bool = False,
 ) -> dict:
     """Decide auto vs. escalate for a classified customer message.
 
@@ -56,6 +57,11 @@ def decide_escalation(
     "reasons" lists only the checks that actually triggered -- it is empty
     when decision is "auto" (no risk signals found), and always non-empty
     when decision is "escalate" (at least one signal triggered it).
+
+    exclude_exact_match: pass True during evaluation against golden_set.csv --
+    see RetrievalIndex.query's docstring. Without this, the "no good retrieval
+    match" signal below can never fire for a golden-set message, since it
+    always finds itself at similarity 1.00.
     """
     reasons = []
 
@@ -68,7 +74,7 @@ def decide_escalation(
     if red_flags:
         reasons.append(f"red-flag language found: {red_flags}")
 
-    retrieved = retrieval_index.query(customer_msg, k=3)
+    retrieved = retrieval_index.query(customer_msg, k=3, exclude_exact_match=exclude_exact_match)
     best_similarity = max((r["similarity"] for r in retrieved), default=0.0)
     if best_similarity < MIN_SIMILARITY_FOR_GROUNDING:
         reasons.append(

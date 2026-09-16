@@ -30,15 +30,34 @@ class RetrievalIndex:
         self.vectorizer = TfidfVectorizer(stop_words="english", max_features=5000)
         self.matrix = self.vectorizer.fit_transform(df["customer_msg"])
 
-    def query(self, customer_msg: str, k: int = 3) -> list[dict]:
+    def query(self, customer_msg: str, k: int = 3, exclude_exact_match: bool = False) -> list[dict]:
         """Return the top-k most similar historical triples to customer_msg.
 
-        Returns fewer than k results only if the index itself has fewer than k rows.
+        Returns fewer than k results only if the index itself has fewer than k
+        (matching, if exclude_exact_match) rows.
+
+        exclude_exact_match: when True, drops any indexed row whose customer_msg
+        is character-for-character identical to the query before taking the
+        top-k. Needed during evaluation: eval/golden_set.csv was sampled from
+        the same apple_triples.csv this index is built from, so without this,
+        querying with a golden-set message always finds itself at similarity
+        1.00 -- making grounding and any retrieval-based signal look
+        artificially perfect. See src/README.md's retrieval.py entry for the
+        discovery (this made the real agent's escalation policy score 0
+        precision/recall on a harness run, since the "no good retrieval match"
+        signal could never fire against a message that was always its own
+        top match).
         """
         query_vec = self.vectorizer.transform([customer_msg])
         similarities = cosine_similarity(query_vec, self.matrix)[0]
 
+        if exclude_exact_match:
+            self_mask = (self.df["customer_msg"] == customer_msg).to_numpy()
+            similarities = similarities.copy()
+            similarities[self_mask] = -1.0
+
         top_k_idx = similarities.argsort()[::-1][:k] # returns top k similarities
+        top_k_idx = [idx for idx in top_k_idx if similarities[idx] > -1.0]
 
         results = []
         for idx in top_k_idx:
