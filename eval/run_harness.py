@@ -123,7 +123,7 @@ def run_real_agent(df: pd.DataFrame, retrieval_index: RetrievalIndex) -> dict:
         intent_preds.append(classification["intent"])
 
         escalation = decide_escalation(
-            row["customer_msg"], classification["intent"], classification["confidence"], retrieval_index,
+            row["customer_msg"], classification["intent"], retrieval_index,
             exclude_exact_match=True,
         )
         escalate_preds.append(escalation["decision"])
