@@ -28,7 +28,7 @@ AmazonHelp, which makes a small, well-defined intent taxonomy easier to build an
 | **Python** | Standard for data/ML pipelines; pandas + scikit-learn ecosystem fits the tabular/text nature of the dataset and baselines. |
 | **kagglehub** | Downloads the Kaggle dataset programmatically using the user's existing Kaggle credentials, so the pipeline is reproducible from a clean clone without manually placing files. |
 | **pandas** | Dataset is a single large CSV (~2.8M rows); pandas is sufficient without introducing a database. |
-| **Gemini API** (`gemini-3.1-flash-lite`) | Used for intent classification, grounded reply drafting, and the LLM-as-judge eval. Originally built against OpenAI, switched to Gemini per user preference; isolated behind a thin wrapper (`src/llm.py`) so the provider can be swapped again later by changing that one file. Model was switched again from `gemini-3.6-flash` after discovering that model's 20-requests/day free-tier cap on this key — see `src/llm.py`'s rate-limit finding. |
+| **AWS Bedrock** (`google.gemma-3-27b-it`) | Used for intent classification, grounded reply drafting, escalation red-flag judgment, and the LLM-as-judge eval. Originally built against OpenAI, then Gemini, then switched to AWS Bedrock after the Gemini free tier became unusable and paid billing signup failed across multiple providers on deadline day — isolated behind a thin wrapper (`src/llm.py`) so the provider could be swapped without touching any calling code. See `DEVLOG.md` for the full provider-switch history. |
 | **scikit-learn** | Provides the simple/trivial baselines (e.g. TF-IDF classifier) that the LLM agent is measured against. |
 
 No database or web framework is used — this is a pipeline + evaluation harness, not a served
@@ -47,9 +47,9 @@ application, so a request/response server is out of scope unless a later step ca
   the hand-labeled golden set). Both required baselines are implemented too:
   `src/baseline_trivial.py` (fixed majority-class prediction, no learning) and
   `src/baseline_simple.py` (keyword classifier + template replies + a naive intent-risk escalation
-  rule). Supporting modules: `src/intents.py` (the 7-intent taxonomy), `src/llm.py` (rate-limited
-  Gemini wrapper), `src/keyword_classifier.py` (used by both the golden-set stratification pool and
-  the simple baseline).
+  rule). Supporting modules: `src/intents.py` (the 7-intent taxonomy), `src/llm.py` (LLM provider
+  wrapper, currently AWS Bedrock), `src/keyword_classifier.py` (used by both the golden-set
+  stratification pool and the simple baseline).
 - `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set, fully
   hand-labeled and human-reviewed (see `eval/README.md`), and committed to the repo (see
   "Reproducing" below). `eval/run_harness.py` scores the trivial baseline, simple baseline, and real
@@ -74,9 +74,10 @@ time. Hand-labeling it took multiple review passes and is not something a fresh 
 this already-labeled file, not rebuilding the whole data pipeline from the raw Kaggle dataset.
 
 1. `pip install -r requirements.txt`
-2. Copy `.env.example` to `.env` and set `GEMINI_API_KEY` (get one at
-   [Google AI Studio](https://aistudio.google.com/)) — or whichever provider key `src/llm.py`
-   is currently configured for.
+2. Copy `.env.example` to `.env` and set `AWS_BEARER_TOKEN_BEDROCK` (an AWS Bedrock API key with
+   access to Google's Gemma 3 27B model) and `AWS_REGION`. See `src/llm.py` for the current
+   provider — this project originally used the Gemini API and switched to AWS Bedrock; see
+   `DEVLOG.md` for why.
 3. `python eval/run_harness.py --full` — runs the trivial baseline, simple baseline, and real agent
    against all 175 rows of the committed `eval/golden_set.csv`, writing metrics to
    `eval/results_full.json`. This is the step that reproduces the numbers in `report/report.md`.

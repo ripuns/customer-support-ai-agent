@@ -41,19 +41,29 @@ auto-handle vs. escalate.
   once added.
 
 ### `llm.py`
-- **What it does**: Wraps the Gemini API behind a single `call_llm(system, user, model, temperature)`
-  function using Google's native `google-genai` SDK. Lazily constructs and caches a `genai.Client`
-  from `GEMINI_API_KEY` (loaded via `python-dotenv` from a repo-root `.env` file). Default model is
-  `gemini-3.6-flash`. Retries up to `MAX_RETRIES` (4) times with exponential backoff
-  (`RETRY_BASE_DELAY_SECONDS` doubling each attempt) on transient `429`/`503` API errors before
-  raising.
-- **Purpose**: Single choke point for all LLM calls (classifier, drafter, escalation reasoning, eval
-  judge) so the rest of the codebase never imports the `google-genai` SDK directly — switching
-  providers later means changing this file only, not every caller.
+- **What it does (current)**: Wraps AWS Bedrock behind a single
+  `call_llm(system, user, model, temperature)` function using `boto3`'s `bedrock-runtime` client and
+  Bedrock's provider-agnostic Converse API. Lazily constructs and caches a client, authenticating via
+  Bedrock's API-key (bearer token) auth from `AWS_BEARER_TOKEN_BEDROCK` (loaded via `python-dotenv`
+  from a repo-root `.env` file; boto3 auto-detects this env var for services that support bearer
+  auth, no explicit credential wiring needed). Default model is `google.gemma-3-27b-it` (verified via
+  a real `list_foundation_models()` call — Bedrock's catalog name for this model, not the
+  `amazon.gemma-3-27b-...` name it's sometimes referred to as). Retries up to `MAX_RETRIES` (4) times
+  with exponential backoff on `ThrottlingException`/`ServiceUnavailableException`/
+  `ModelTimeoutException` before raising.
+- **Purpose**: Single choke point for all LLM calls (classifier, drafter, escalation red-flag check,
+  eval judge) so the rest of the codebase never imports a provider SDK directly — switching providers
+  means changing this file only, not every caller. This was exercised for real: the file was
+  originally written against OpenAI, then Gemini, then AWS Bedrock (see "Provider history" below),
+  and no calling code changed across any of those switches.
 - **Provider history**: Originally written against the OpenAI API (per initial project decision),
-  then switched to Gemini per user request. The `google-genai` package was added to
-  `requirements.txt` in place of `openai`, which was removed since both providers are not
-  supported simultaneously.
+  then switched to Gemini per user request. Switched again to AWS Bedrock on deadline day after the
+  Gemini free tier became unusable (see "Rate-limit history" below) and paid billing signup failed
+  across GCP, AWS console billing, and several other providers due to account-verification issues
+  unrelated to this project — Bedrock access was obtained via a friend's already-verified AWS
+  account using Bedrock's API-key auth, which needed no IAM user/access-key setup. See `DEVLOG.md`
+  for the full incident timeline. `requirements.txt` was updated accordingly (`boto3` in place of
+  `google-genai`).
 - **Rate-limit history (two separate caps found, one at a time)**:
   1. **Per-minute cap**: this key's free tier capped `gemini-3.6-flash` at 5 requests/minute (`429
      RESOURCE_EXHAUSTED`, confirmed empirically). A retry/backoff-only version of this wrapper was
@@ -81,9 +91,9 @@ auto-handle vs. escalate.
   (AFC) on every call, recommending the Chat API pattern instead of `generate_content`. Left as-is
   since it doesn't affect correctness and switching to the Chat API is a larger change than this
   wrapper's current scope.
-- **Depends on**: `google-genai`, `python-dotenv`; `GEMINI_API_KEY` must be set in `.env`.
-- **Depended on by**: `classifier.py`. Will also be imported by the drafter and escalation policy
-  modules once added.
+- **Depends on**: `boto3`, `python-dotenv`; `AWS_BEARER_TOKEN_BEDROCK` and `AWS_REGION` must be set
+  in `.env`.
+- **Depended on by**: `classifier.py`, `drafter.py`, `escalation.py`, `judge.py`.
 
 ### `keyword_classifier.py`
 - **What it does**: `classify_keyword(msg)` — a substring/keyword-match heuristic that assigns one
