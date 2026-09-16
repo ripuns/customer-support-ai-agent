@@ -14,14 +14,21 @@ from google.genai import types
 
 load_dotenv()
 
-# gemini-3.6-flash's free tier caps at 5 requests/minute (429 resource_exhausted errors)
-# a live run only achieved a 14.78% success rate because backoff delays a failed call's retries 
-# but does not throttle the rate new calls are issued at. MIN_SECONDS_BETWEEN_CALLS below is the
-# actual fix: it enforces the request rate itself, before any call is made, so this
-# wrapper is now safe to use in a loop over many examples
-
-DEFAULT_MODEL = "gemini-3.6-flash"
-MIN_SECONDS_BETWEEN_CALLS = 12.5  # slightly over 60/5=12s to leave margin
+# gemini-3.6-flash has TWO separate free-tier caps on this key, discovered one at a time:
+#   1. 5 requests/minute (429 RESOURCE_EXHAUSTED) -- fixed by the throttle below.
+#   2. 20 requests/DAY total (a *different* 429, quotaId
+#      "GenerateRequestsPerDayPerProjectPerModel-FreeTier") -- discovered when a 25-row
+#      harness eval run died partway through after exhausting the day's quota. No amount
+#      of throttling or backoff can work around a daily cap; the only fixes are enabling
+#      billing or switching model. Switched DEFAULT_MODEL to gemini-3.1-flash-lite, which
+#      empirically handles bursts of 20+ calls without hitting either limit on this key
+#      (per-minute or per-day) -- see src/README.md for the verification history. It is
+#      slower per-call (~7s) and occasionally returns transient 503s, both already handled
+#      by the retry logic below.
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
+MIN_SECONDS_BETWEEN_CALLS = 3.0  # gemini-3.1-flash-lite has no observed per-minute cap on
+# this key; a small spacing is still kept as a courtesy/safety margin rather than firing
+# requests back-to-back with zero delay.
 
 _client = None
 _last_call_time = None
