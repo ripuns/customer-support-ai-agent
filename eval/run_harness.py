@@ -3,11 +3,11 @@ agent (classifier + drafter + escalation policy) against a sample of
 golden_set and reports automated metrics for all three.
 
 Default run is a small subsample (25) to fit a reasonable reproduction
-time -- the real agent's classifier and drafter both make throttled Gemini
-API calls, so scoring all 175 golden-set rows takes a while (2 agent calls +
-up to 2 judge calls per row). See src/llm.py's rate-limit finding for the
-two separate free-tier caps discovered on this key (per-minute and, more
-seriously, per-day) and why DEFAULT_MODEL is gemini-3.1-flash-lite.
+time -- the real agent's classifier, escalation check, and drafter all make
+LLM API calls (currently AWS Bedrock, Gemma 3 27B -- see src/llm.py), so
+scoring all 175 golden-set rows still takes a while even without the
+throttling the original Gemini free-tier key required (see src/llm.py's
+provider-switch history for that incident).
 
 Metrics reported:
   - Intent classification accuracy (trivial / simple / real agent)
