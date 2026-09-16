@@ -1,0 +1,69 @@
+{
+  "n": 175,
+  "full_run": true,
+  "timestamp": "2026-09-16 23:23:49",
+  "trivial": {
+    "intent": {
+      "accuracy": 0.2914285714285714,
+      "n": 175
+    },
+    "escalation": {
+      "accuracy": 0.6342857142857142,
+      "precision": 0.0,
+      "recall": 0.0,
+      "tp": 0,
+      "fp": 0,
+      "tn": 111,
+      "fn": 64
+    },
+    "reply_quality": {
+      "grounded": 4,
+      "correct": 5,
+      "actionable": 3,
+      "note": "fixed reply, judged once for all rows"
+    }
+  },
+  "simple": {
+    "intent": {
+      "accuracy": 0.6857142857142857,
+      "n": 175
+    },
+    "escalation": {
+      "accuracy": 0.6114285714285714,
+      "precision": 0.46,
+      "recall": 0.359375,
+      "tp": 23,
+      "fp": 27,
+      "tn": 84,
+      "fn": 41
+    },
+    "reply_quality": {
+      "grounded": 3.7657142857142856,
+      "correct": 4.537142857142857,
+      "actionable": 3.3257142857142856
+    }
+  },
+  "real_agent": {
+    "intent": {
+      "accuracy": 0.7257142857142858,
+      "n": 175
+    },
+    "escalation": {
+      "accuracy": 0.6742857142857143,
+      "precision": 0.5853658536585366,
+      "recall": 0.375,
+      "tp": 24,
+      "fp": 17,
+      "tn": 94,
+      "fn": 40
+    },
+    "reply_quality": {
+      "grounded": 4.674285714285714,
+      "correct": 4.965714285714285,
+      "actionable": 4.1257142857142854
+    }
+  },
+  "caveats": [
+    "Every golden_set.csv row exists verbatim in the retrieval index the real agent queries (it was sampled from the same source data). This harness passes exclude_exact_match=True to draft_reply/decide_escalation to prevent a row from matching itself at similarity 1.00 -- without that fix, an early run showed the real agent's escalation policy scoring 0 precision/0 recall. Retrieval-based signals are still measured against the rest of the 5,000-row apple_triples.csv pool (which may itself contain near-duplicate/paraphrased versions of a golden-set message from the same era of complaints), so results may still be somewhat optimistic versus a truly unseen message -- see report/ for discussion."
+  ]
+}
