@@ -1,0 +1,69 @@
+{
+  "n": 25,
+  "full_run": false,
+  "timestamp": "2026-09-15 14:42:56",
+  "trivial": {
+    "intent": {
+      "accuracy": 0.2,
+      "n": 25
+    },
+    "escalation": {
+      "accuracy": 0.56,
+      "precision": 0.0,
+      "recall": 0.0,
+      "tp": 0,
+      "fp": 0,
+      "tn": 14,
+      "fn": 11
+    },
+    "reply_quality": {
+      "grounded": 5,
+      "correct": 5,
+      "actionable": 5,
+      "note": "fixed reply, judged once for all rows"
+    }
+  },
+  "simple": {
+    "intent": {
+      "accuracy": 0.88,
+      "n": 25
+    },
+    "escalation": {
+      "accuracy": 0.6,
+      "precision": 0.5555555555555556,
+      "recall": 0.45454545454545453,
+      "tp": 5,
+      "fp": 4,
+      "tn": 10,
+      "fn": 6
+    },
+    "reply_quality": {
+      "grounded": 4.48,
+      "correct": 4.32,
+      "actionable": 4.4
+    }
+  },
+  "real_agent": {
+    "intent": {
+      "accuracy": 0.64,
+      "n": 25
+    },
+    "escalation": {
+      "accuracy": 0.48,
+      "precision": 0.0,
+      "recall": 0.0,
+      "tp": 0,
+      "fp": 2,
+      "tn": 12,
+      "fn": 11
+    },
+    "reply_quality": {
+      "grounded": 5.0,
+      "correct": 4.96,
+      "actionable": 5.0
+    }
+  },
+  "caveats": [
+    "Every golden_set.csv row exists verbatim in the retrieval index the real agent queries (it was sampled from the same source data). This harness passes exclude_exact_match=True to draft_reply/decide_escalation to prevent a row from matching itself at similarity 1.00 -- without that fix, an early run showed the real agent's escalation policy scoring 0 precision/0 recall. Retrieval-based signals are still measured against the rest of the 5,000-row apple_triples.csv pool (which may itself contain near-duplicate/paraphrased versions of a golden-set message from the same era of complaints), so results may still be somewhat optimistic versus a truly unseen message -- see report/ for discussion."
+  ]
+}
