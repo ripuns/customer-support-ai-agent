@@ -3,8 +3,8 @@
 ## What
 
 The golden evaluation set (hand-labeled examples used to measure the agent's actual
-classification/reply/escalation quality) and, eventually, the automated evaluation harness that
-scores the agent against it.
+classification/reply/escalation quality) and the automated evaluation harness (`run_harness.py`)
+that scores the trivial baseline, simple baseline, and real agent against it.
 
 ## Why
 
@@ -15,19 +15,22 @@ data pipeline and the agent implementation so it can catch regressions in either
 ## How
 
 `golden_set.csv` is produced by `scripts/sample_golden_set.py` (stratified sample from
-`data/processed/apple_triples_classified.csv`) and then hand-labeled by me. Once
-labeled, an evaluation harness (not yet added) will load this file, run the agent against each
-`customer_msg`, and score classification accuracy, escalation correctness, and reply quality
-against the hand-labels.
+`data/processed/apple_triples_classified.csv`) and then hand-labeled by me. `run_harness.py` loads
+this file, runs the trivial baseline, simple baseline, and real agent against each `customer_msg`,
+and scores classification accuracy, escalation accuracy/precision/recall, and LLM-judged reply
+quality against the hand-labels, writing results to a JSON file.
 
-**Labeling status**: 34 of 175 rows were labeled by hand by the project author, with the labeling
-standard converging through iterative review (see below). The remaining 141 rows were drafted by
-the assistant applying that same standard (see `scripts/_draft_labels.py` — every drafted row's
-`intent_label`, `auto_or_escalate`, and `escalate_reason` is a literal, auditable judgment call,
-and each drafted `reply_quality_note` is prefixed `[DRAFT]`). **These 141 rows are not yet
-human-reviewed** — the project author must read through and correct any the assistant got wrong
-before this file can be considered the actual golden set for grading/reporting purposes. The
-`[DRAFT]` prefix should be removed from `reply_quality_note` as each row is confirmed.
+**Labeling status**: 34 of 175 rows were originally labeled by hand by the project author, with the
+labeling standard converging through iterative review (see below). The remaining 141 rows were
+drafted by the assistant applying that same standard (see `scripts/_draft_labels.py` — every
+drafted row's `intent_label`, `auto_or_escalate`, and `escalate_reason` is a literal, auditable
+judgment call). As of this update, the project author has reviewed and confirmed spreadsheet rows
+2-100 (df indices 0-98) — the `[DRAFT]` prefix has been removed from `reply_quality_note` for those
+rows, correcting any the assistant got wrong along the way (see conversation history for the
+specific corrections made during review, e.g. rows initially escalated on "many people report this"
+or tone alone that were fixed to `auto`). **Spreadsheet rows 101-175 (76 rows) are still marked
+`[DRAFT]` and not yet human-reviewed** — do not treat those rows as final for grading/reporting
+purposes until reviewed.
 
 ## File responsibilities
 
@@ -69,8 +72,7 @@ before this file can be considered the actual golden set for grading/reporting p
   spreadsheet editor, or save explicitly as UTF-8 CSV rather than the editor's default.
 - **Depends on**: `data/processed/apple_triples_classified.csv` (produced by
   `scripts/classify_triples.py`).
-- **Depended on by**: Not yet consumed by other code — will be the input to the evaluation harness
-  once added.
+- **Depended on by**: `run_harness.py`.
 - **Labeling standard (converged through review of the first 34 rows)**: `auto_or_escalate` is
   decided per-thread based on whether `brand_reply`/`customer_followup` show the issue actually
   resolving cleanly on a standard/templatable reply, not on the topic or tone alone. Escalate when:
@@ -97,3 +99,54 @@ before this file can be considered the actual golden set for grading/reporting p
 - **Depended on by**: Nothing — already run once; re-running is idempotent for the same 141 rows
   but would overwrite any human corrections made to those rows since. Do not re-run after manual
   review has started.
+
+### `run_harness.py`
+- **What it does**: Loads `golden_set.csv`, samples `--n` rows (default 25, seeded) unless `--full`
+  is passed (all 175 rows), then runs three tiers against that sample: `baseline_trivial`,
+  `baseline_simple`, and the real agent (`classifier.classify_intent` + `escalation.decide_escalation`
+  + `drafter.draft_reply`). For each tier, computes intent accuracy, escalation
+  accuracy/precision/recall, and mean LLM-judge scores (`judge.judge_reply`, 1-5 on
+  grounded/correct/actionable) across the sampled replies. The trivial baseline's fixed reply is
+  judged once, not once per row, since it's identical every time. Writes results as JSON to
+  `eval/results_preview.json` (subsample runs) or `eval/results_full.json` (`--full` runs), or a
+  path given by `--out`.
+- **Purpose**: This is the required "evaluation harness — automated metrics + an LLM-as-judge
+  rubric for reply quality" deliverable, producing the numbers the report's baseline comparison and
+  results sections are built from.
+- **Why a default subsample**: The real agent's classifier and drafter each make one Gemini call
+  per row, plus one judge call. With `gemini-3.6-flash` (the original default) this was throttled to
+  ~12.5s/call, making a full 175-row run take ~2.5 hours — and that model turned out to also have a
+  hard 20-requests/day cap on this key (see `src/llm.py`'s rate-limit finding), making even a 25-row
+  preview run unreliable. After switching `DEFAULT_MODEL` to `gemini-3.1-flash-lite` (~3-4s/call,
+  no observed daily cap), a 25-row run across all three tiers completes in under 10 minutes. `--n 25`
+  remains the default; the actual report numbers come from a `--full` run, executed once and
+  committed as `eval/results_full.json` so reproducing the report's headline numbers doesn't require
+  re-running the full pass.
+- **Verified**: Smoke-tested end-to-end at `--n 3`. A first `--n 25` run using `gemini-3.6-flash`
+  died partway through the simple-baseline pass after hitting the (then-undiscovered) daily quota.
+  After switching to `gemini-3.1-flash-lite`, a `--n 25` run completed successfully but revealed the
+  eval leakage bug (real agent's escalation precision/recall both 0.0 — see below). After adding
+  `exclude_exact_match=True` throughout, re-ran `--n 25` again for real preview numbers (see
+  `eval/results_preview.json`).
+- **Eval leakage bug found via this harness, fixed — but was NOT the real cause of the 0/0 result**:
+  The first successful `--n 25` run showed the real agent's escalation policy scoring exactly
+  **0 precision / 0 recall** (TP=0) despite 13 actual escalate cases in the sample. The retrieval
+  leakage (every `golden_set.csv` message exists verbatim in the retrieval index, so
+  `escalation.py`'s "no good retrieval match" signal could never fire — see `src/retrieval.py`) was
+  fixed via `RetrievalIndex.query`'s new `exclude_exact_match` parameter, now passed as `True`
+  everywhere in this harness. Verified the fix changes real retrieval behavior (similarities dropped
+  from 1.00 to 0.21-0.49 on the same rows). **However, re-running after the fix produced the exact
+  same 0 precision / 0 recall result** — so retrieval leakage, while a real bug worth fixing, was not
+  actually what was causing the escalation misses. Direct diagnosis on the 11 true-escalate rows in
+  this sample showed classifier confidence was always >=85 (the confidence signal never fires) and
+  **none of the 11 messages contained any `RED_FLAG_PHRASES` substring** — the escalation policy's
+  keyword list, tuned against the 35 hand-labeled rows (91% match there), does not generalize to a
+  fresh random sample. See `src/README.md`'s `escalation.py` entry, "Overfitting confirmed on a
+  fresh sample," for the full finding — this is likely the single most important result for the
+  report's failure analysis. The harness output's `"caveats"` field documents the residual, smaller
+  risk that near-duplicate (not exact) messages elsewhere in the 5,000-row pool could still make
+  results somewhat optimistic.
+- **Depends on**: `eval/golden_set.csv`; `src/baseline_trivial.py`, `src/baseline_simple.py`,
+  `src/classifier.py`, `src/drafter.py`, `src/escalation.py`, `src/judge.py`, `src/retrieval.py`.
+- **Depended on by**: Not yet consumed by other code — its output (`results_full.json`) will be
+  referenced by `report/` once added.

@@ -28,7 +28,7 @@ AmazonHelp, which makes a small, well-defined intent taxonomy easier to build an
 | **Python** | Standard for data/ML pipelines; pandas + scikit-learn ecosystem fits the tabular/text nature of the dataset and baselines. |
 | **kagglehub** | Downloads the Kaggle dataset programmatically using the user's existing Kaggle credentials, so the pipeline is reproducible from a clean clone without manually placing files. |
 | **pandas** | Dataset is a single large CSV (~2.8M rows); pandas is sufficient without introducing a database. |
-| **Gemini API** (`gemini-3.6-flash`) | Used for intent classification, grounded reply drafting, and the LLM-as-judge eval. Originally built against OpenAI, switched to Gemini per user preference; isolated behind a thin wrapper (`src/llm.py`) so the provider can be swapped again later by changing that one file. |
+| **Gemini API** (`gemini-3.1-flash-lite`) | Used for intent classification, grounded reply drafting, and the LLM-as-judge eval. Originally built against OpenAI, switched to Gemini per user preference; isolated behind a thin wrapper (`src/llm.py`) so the provider can be swapped again later by changing that one file. Model was switched again from `gemini-3.6-flash` after discovering that model's 20-requests/day free-tier cap on this key — see `src/llm.py`'s rate-limit finding. |
 | **scikit-learn** | Provides the simple/trivial baselines (e.g. TF-IDF classifier) that the LLM agent is measured against. |
 
 No database or web framework is used — this is a pipeline + evaluation harness, not a served
@@ -52,7 +52,12 @@ application, so a request/response server is out of scope unless a later step ca
   the simple baseline).
 - `eval/` — `eval/golden_set.csv` is the 175-example stratified golden evaluation set (34 rows
   hand-labeled, 141 drafted by the assistant and pending human review — see `eval/README.md`).
-  Evaluation harness not yet added.
+  `eval/run_harness.py` scores the trivial baseline, simple baseline, and real agent against it
+  (automated metrics + LLM-as-judge reply quality rubric), writing results as JSON. A 25-row preview
+  run (`eval/results_preview.json`) surfaced an important finding: the real agent's escalation
+  policy scores 0 precision/0 recall on this out-of-sample data despite 91% accuracy on the rows it
+  was tuned against — a real overfitting result, not a bug, documented in `src/README.md`'s
+  `escalation.py` entry.
 - `report/` — the written report (problem framing, baselines, failure analysis, decision log) —
   not yet added.
 - `notebooks/` — exploratory notebooks — not yet added.
@@ -77,5 +82,11 @@ application, so a request/response server is out of scope unless a later step ca
 8. `python scripts/sample_golden_set.py` — stratified-samples 25 examples per intent (175 total)
    into `eval/golden_set.csv`. This file is then hand-labeled (intent confirmation, auto/escalate
    decision, escalate reason, reply quality note) — see `eval/README.md`.
+9. `python eval/run_harness.py` — runs the trivial baseline, simple baseline, and real agent
+   against a 25-row sample of `eval/golden_set.csv`, writing metrics to
+   `eval/results_preview.json`. Takes under 10 minutes. Pass `--full` to run all 175 rows for the
+   numbers reported in `report/` (longer, but no longer ~2.5 hours now that `DEFAULT_MODEL` is
+   `gemini-3.1-flash-lite` — see `src/llm.py`'s rate-limit finding for the full history of both
+   free-tier caps discovered on this key).
 
-Further steps (agent pipeline, eval harness) will be documented here as they are added.
+Further steps (report, decision log) will be documented here as they are added.

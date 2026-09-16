@@ -54,20 +54,29 @@ auto-handle vs. escalate.
   then switched to Gemini per user request. The `google-genai` package was added to
   `requirements.txt` in place of `openai`, which was removed since both providers are not
   supported simultaneously.
-- **Rate-limit finding and fix**: This API key's free tier caps `gemini-3.6-flash` at 5
-  requests/minute (`429 RESOURCE_EXHAUSTED`, confirmed empirically). A retry/backoff-only version of
-  this wrapper was tried first and failed badly: a real 300-call run against Google's own usage
-  dashboard showed only a **14.78% success rate** (379 requests, ~85% failing with 429), because
-  backoff delays a failing call's *retries* without throttling the *rate new calls are issued at* —
-  under sustained load the loop kept submitting faster than 5/min. The actual fix is
-  `_throttle()`/`MIN_SECONDS_BETWEEN_CALLS` (12.5s, just over the 12s that 5/min implies): it blocks
-  before every call so the request rate itself never exceeds the quota, with retry/backoff kept as
-  a second line of defense for genuinely transient errors. Verified with a live 3-call test showing
-  consistent ~12.6s spacing and no 429s. A candidate alternative, `gemini-3.1-flash-lite`, has no
-  quota cap on this key but is slower per-call (~7s vs ~2-4s) and prone to transient `503` "high
-  demand" errors — evaluated but not adopted. **Cost of the fix**: every call now takes at least
-  12.5s, so a loop over the 175-row golden set takes ~37 minutes minimum — acceptable for a one-off
-  eval run, not for anything latency-sensitive.
+- **Rate-limit history (two separate caps found, one at a time)**:
+  1. **Per-minute cap**: this key's free tier capped `gemini-3.6-flash` at 5 requests/minute (`429
+     RESOURCE_EXHAUSTED`, confirmed empirically). A retry/backoff-only version of this wrapper was
+     tried first and failed badly: a real 300-call run against Google's own usage dashboard showed
+     only a **14.78% success rate** (379 requests, ~85% failing with 429), because backoff delays a
+     failing call's *retries* without throttling the *rate new calls are issued at*. Fixed with a
+     `_throttle()` that blocks before every call so the request rate itself never exceeds the quota.
+  2. **Per-day cap (found later, more serious)**: `gemini-3.6-flash` on this key also has a hard
+     cap of **20 requests/day total** (a *different* 429, quotaId
+     `GenerateRequestsPerDayPerProjectPerModel-FreeTier`) — discovered when a 25-row harness
+     evaluation run (`eval/run_harness.py`) died partway through after exhausting the day's quota.
+     No amount of throttling or backoff can work around a daily cap. This made `gemini-3.6-flash`
+     unusable as the default for anything beyond a handful of calls per day.
+  - **Fix**: switched `DEFAULT_MODEL` to `gemini-3.1-flash-lite`. Verified with a live 30-call burst
+    (on top of ~40+ other calls already made that same day across testing) — 30/30 succeeded, no
+    per-minute or per-day quota errors, averaging ~3.7s/call (faster than the ~7s originally
+    estimated in earlier testing). `MIN_SECONDS_BETWEEN_CALLS` was correspondingly relaxed from
+    12.5s to 3.0s (no per-minute cap observed on this model; a small spacing kept as a courtesy
+    margin, not because a specific limit was measured).
+  - **Residual risk**: `gemini-3.1-flash-lite`'s daily quota was never hit in testing, but its exact
+    limit is unknown (Google does not expose it directly) — a `--full` (175-row) harness run could
+    still hit an undiscovered daily cap partway through. If it does, the fix is the same playbook
+    used here: check `client.models.list()` for another candidate model, burst-test it, switch.
 - **Known limitation**: The SDK prints a benign stderr warning about automatic function calling
   (AFC) on every call, recommending the Chat API pattern instead of `generate_content`. Left as-is
   since it doesn't affect correctness and switching to the Chat API is a larger change than this
@@ -146,49 +155,65 @@ auto-handle vs. escalate.
   skew), not a retrieval bug.
 - **Depends on**: `data/processed/apple_triples.csv` (produced by `build_threads.py`);
   `scikit-learn`.
-- **Depended on by**: `drafter.py`.
-- **Eval leakage warning (important, not yet resolved)**: `eval/golden_set.csv` was sampled *from*
-  `apple_triples.csv`, so every golden-set `customer_msg` exists verbatim inside this retrieval
-  index — querying with a golden-set message will always find itself first at similarity 1.00 and
-  return its own real historical reply as a "retrieved example." This makes grounding look
-  artificially perfect during evaluation (the drafter can effectively see the answer). The
-  evaluation harness (not yet added) must exclude each golden-set row's own entry from its
-  retrieval results before scoring, or the reply-quality numbers will be misleading — this is
-  exactly the kind of thing that belongs in the report's mandatory "what's misleading about my
-  headline number" section.
+- **Depended on by**: `drafter.py`, `escalation.py`, `eval/run_harness.py`.
+- **Eval leakage — found and fixed**: `eval/golden_set.csv` was sampled *from* `apple_triples.csv`,
+  so every golden-set `customer_msg` exists verbatim inside this retrieval index — querying with a
+  golden-set message would always find itself first at similarity 1.00. This was not just a
+  cosmetic issue: an early `eval/run_harness.py` run showed the real agent's escalation policy
+  scoring **0 precision / 0 recall** on a 25-row sample, because `escalation.py`'s "no sufficiently
+  similar historical resolution found" signal could never fire against a message that was always
+  its own top match — the leakage silenced one of the policy's three signals entirely. Fixed by
+  adding `exclude_exact_match: bool` to `query()` — when `True`, any indexed row with a
+  character-for-character identical `customer_msg` is masked out (similarity set to -1) before the
+  top-k is taken. `drafter.py` and `escalation.py` both accept and forward this parameter;
+  `eval/run_harness.py` passes `exclude_exact_match=True` on every call during evaluation. Verified
+  the fix actually changes behavior: the same 5 escalate-labeled rows that showed similarity 1.00
+  before the fix showed real similarities of 0.21-0.49 after — still topically related (the dataset
+  is full of similar iOS-11-era complaints) but no longer an exact self-match.
+- **Residual limitation (documented, not fixed)**: retrieval-based signals are still measured
+  against the rest of the ~5,000-row `apple_triples.csv` pool, which may contain near-duplicate or
+  paraphrased versions of a given golden-set message from the same era of complaints — so results
+  may still be somewhat optimistic versus a truly unseen message in production. This is a smaller,
+  harder-to-fully-eliminate version of the same underlying issue, worth carrying into the report's
+  "what's misleading about my headline number" section rather than claiming it's fully solved.
 
 ### `drafter.py`
-- **What it does**: `draft_reply(customer_msg, intent, retrieval_index, k=3)` — queries the given
-  `RetrievalIndex` for the top-k similar historical triples, filters them to
+- **What it does**: `draft_reply(customer_msg, intent, retrieval_index, k=3, exclude_exact_match=False)`
+  — queries the given `RetrievalIndex` for the top-k similar historical triples, filters them to
   `MIN_SIMILARITY_TO_USE` (0.15) so weak/irrelevant matches aren't used as grounding, builds a
   system prompt naming the classified intent (with its `INTENTS` description) and formatting the
   filtered examples as few-shot context, then calls `src.llm.call_llm` (temperature 0.3, some
   variation allowed since this is generative, unlike the classifier). Returns
   `{"reply": str, "grounded_on": list[dict]}` — `grounded_on` is the actual filtered examples used,
   so callers/eval code can see (and score) what grounding was available for this reply, including
-  the empty-list case where nothing sufficiently similar was found.
+  the empty-list case where nothing sufficiently similar was found. `exclude_exact_match` is
+  forwarded straight to `RetrievalIndex.query` — pass `True` during evaluation (see
+  `retrieval.py`'s eval leakage entry).
 - **Purpose**: This is the "drafts a reply grounded in how the brand has historically resolved
   similar issues" requirement — the prompt explicitly instructs the model not to copy examples
   verbatim or invent unlisted specifics (case numbers, links), and to fall back to AppleSupport's
   real pattern of directing to DM when a public reply can't resolve the issue.
 - **Verified against real data**: Tested end-to-end against golden-set row 1 (an AppleCare/Apple
-  Store complaint) — retrieved 3 examples (top similarity 1.00, since this exact message exists in
-  the source `apple_triples.csv` the index is built from — see `retrieval.py`'s eval leakage
-  warning), and the drafted reply's opening closely mirrored the real historical reply's tone
-  ("We'd like to look into this with you..."), then appropriately added a DM handoff.
+  Store complaint) — with `exclude_exact_match=False`, retrieved 3 examples (top similarity 1.00,
+  since this exact message exists in the source `apple_triples.csv` — the eval leakage case
+  `retrieval.py` documents), and the drafted reply's opening closely mirrored the real historical
+  reply's tone ("We'd like to look into this with you..."), then appropriately added a DM handoff.
 - **Depends on**: `src/intents.py`, `src/llm.py`, `src/retrieval.py`.
 - **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
   evaluation harness.
 
 ### `escalation.py`
-- **What it does**: `decide_escalation(customer_msg, intent, confidence, retrieval_index)` — a
-  rule-based (not LLM-based) policy returning `{"decision": "auto" | "escalate", "reasons": [...]}`.
-  Escalates when: intent is `"unknown"` or classifier confidence is below
-  `CONFIDENCE_ESCALATE_THRESHOLD` (60); the message matches a `RED_FLAG_PHRASES` substring (prior
-  fix attempt failed, lockout/data-loss language, severity signals like "brick" or "haven't even
-  had"); or `RetrievalIndex` finds no historical match above `MIN_SIMILARITY_FOR_GROUNDING` (0.15).
-  `reasons` lists exactly which checks triggered, satisfying the assignment's "stated reason"
-  requirement.
+- **What it does**: `decide_escalation(customer_msg, intent, confidence, retrieval_index,
+  exclude_exact_match=False)` — a rule-based (not LLM-based) policy returning
+  `{"decision": "auto" | "escalate", "reasons": [...]}`. Escalates when: intent is `"unknown"` or
+  classifier confidence is below `CONFIDENCE_ESCALATE_THRESHOLD` (60); the message matches a
+  `RED_FLAG_PHRASES` substring (prior fix attempt failed, lockout/data-loss language, severity
+  signals like "brick" or "haven't even had"); or `RetrievalIndex` finds no historical match above
+  `MIN_SIMILARITY_FOR_GROUNDING` (0.15). `reasons` lists exactly which checks triggered, satisfying
+  the assignment's "stated reason" requirement. `exclude_exact_match` is forwarded to
+  `RetrievalIndex.query` — pass `True` during evaluation (see `retrieval.py`'s eval leakage entry;
+  without this, the retrieval-grounding check above can never fire against a golden-set message,
+  which is how the eval leakage bug was originally discovered).
 - **Purpose**: Deliberately rule-based rather than another LLM call — needs to be interpretable and
   defensible (a live-defense requirement of this assignment), and is built to directly encode the
   same standard used to hand-label `eval/golden_set.csv` (see that file's "Labeling standard"
@@ -203,17 +228,26 @@ auto-handle vs. escalate.
   actually resolve?), not by topic category. Removed the intent-based rule and expanded
   `RED_FLAG_PHRASES` with the severity/failure-signal phrases that were actually present in the
   genuinely-escalated rows instead. Re-tested: **32/35 (91%)**.
-- **Known remaining limitation**: 2 of the 3 still-mismatched rows are threads where a real severity
-  signal exists but isn't expressible as a clean keyword (e.g. "killed my battery... freezes every
-  few letters" — genuinely severe but phrased conversationally, no matching red-flag substring).
-  This is an honest limitation of a keyword-based policy, not a bug — a more accurate policy would
-  likely need sentiment/severity modeling, which was deliberately not added to keep this component
-  interpretable. Documented here rather than silently tuned away, since it belongs in the report's
-  failure-analysis and "what's misleading about my headline number" sections.
+- **Known remaining limitation (on the 35 tuning rows)**: 2 of the 3 still-mismatched rows are
+  threads where a real severity signal exists but isn't expressible as a clean keyword (e.g. "killed
+  my battery... freezes every few letters" — genuinely severe but phrased conversationally, no
+  matching red-flag substring).
+- **Overfitting confirmed on a fresh sample (important finding)**: `eval/run_harness.py`'s `--n 25`
+  run — a random 25-row sample disjoint from the 35 rows this policy was tuned against — showed the
+  real agent's escalation policy scoring **0 precision / 0 recall** (TP=0) against 11 true escalate
+  cases. Diagnosed directly: classifier confidence on those 11 messages was always >=85 (never
+  triggering `CONFIDENCE_ESCALATE_THRESHOLD`), and **none of the 11 contained any `RED_FLAG_PHRASES`
+  substring**. This is not the eval-leakage bug (that was found and fixed separately — see
+  `retrieval.py`) — it is the keyword-based policy genuinely failing to generalize past the specific
+  phrasing of the rows it was iterated against. The 91% figure above describes fit to the 35 tuning
+  rows, not real-world performance; the 25-row out-of-sample result is the more honest number. This
+  is a central, concrete example for the report's failure analysis and "what's misleading about my
+  headline number" section — a keyword list tuned by reading a small hand-labeled set will always
+  risk this kind of overfitting, and a larger or more systematic labeling pass (or a
+  learned/LLM-based escalation signal instead of keywords) would be the natural next step.
 - **Depends on**: `src/retrieval.py` (uses it to compute the grounding-availability signal).
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
-  evaluation harness. This is also the last of the three core agent components (classify, draft,
-  escalate) required by the assignment.
+- **Depended on by**: `eval/run_harness.py`. This is also the last of the three core agent
+  components (classify, draft, escalate) required by the assignment.
 
 ### `baseline_trivial.py`
 - **What it does**: The "trivial baseline" required by the assignment ("results vs. at least two
@@ -259,5 +293,27 @@ auto-handle vs. escalate.
   This equal-accuracy-different-reasons result is a concrete, ready-made example for the report's
   "what's misleading about my headline number" section.
 - **Depends on**: `src/keyword_classifier.py`, `src/intents.py`.
+- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
+  evaluation harness.
+
+### `judge.py`
+- **What it does**: `judge_reply(customer_msg, agent_reply)` — LLM-as-judge scoring a drafted
+  reply on 3 fixed dimensions, each 1-5: **grounded** (reflects real AppleSupport handling vs.
+  generic boilerplate), **correct** (factually sound, doesn't invent specifics), **actionable**
+  (gives a concrete next step). Returns `{"grounded": int|None, "correct": int|None,
+  "actionable": int|None}` — `None` for a dimension only if the judge's response couldn't be
+  parsed (missing data, not a failing score).
+- **Purpose**: Satisfies the assignment's "LLM-as-judge rubric for reply quality" requirement. Kept
+  to exactly 3 fixed dimensions (not open-ended scoring) so results are comparable across replies
+  and so a human can be asked the same 3 questions for the judge-vs-human agreement check (not yet
+  added) required by the assignment.
+- **Verified against real data**: Tested on a clearly good vs. clearly bad synthetic reply pair for
+  the same customer message. Good reply (asks for device/iOS version, AppleSupport's real pattern):
+  5/5/5. Bad reply (generic acknowledgment, no substance): grounded=1, correct=5, actionable=1 —
+  correctly low on the two dimensions the reply actually fails, while fairly not penalizing
+  "correct" since the bad reply contains no false claims, just no substance. This directional
+  sanity check is not the same as measuring real judge-vs-human agreement on golden-set examples,
+  which the evaluation harness still needs to do.
+- **Depends on**: `src/llm.py`.
 - **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
   evaluation harness.
