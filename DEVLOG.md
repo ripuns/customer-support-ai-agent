@@ -27,18 +27,19 @@ mandatory "what's misleading about my headline number" section, next-week plan),
 
 ## Key decisions made (chronological, for the decision log)
 1. **Brand: AppleSupport** — chosen after inspecting `scripts/inspect_brands.py` output: ~107k
-   replies, ~34% customer-follow-up rate, narrower issue surface than e-commerce brands like Amazon.
-2. **LLM provider: Gemini**, not OpenAI — user had no OpenAI billing credits, switched preference to
-   Gemini (Google AI Studio). `src/llm.py` wraps it behind `call_llm()`.
+   replies, ~34% customer-follow-up rate, narrower issue surface than e-commerce brands like
+   Amazon.
+2. **LLM provider: Gemini**, not OpenAI — user had no OpenAI billing credits, switched preference
+   to Gemini (Google AI Studio). `src/llm.py` wraps it behind `call_llm()`.
 3. **Thread definition**: triples (customer→brand→customer follow-up) as primary grounding/golden
    set source; no-followup pairs kept aside as a secondary dataset for failure-analysis ("what
    reply patterns correlate with customer abandonment").
 4. **7-intent taxonomy** (`src/intents.py`), derived by manually sampling ~120 real customer
    messages, not guessed: `software_bug`, `battery_performance`, `account_security`,
-   `billing_purchase`, `hardware_issue`, `how_to_info`, `store_order_service`. Battery split out
-   from software_bug specifically because of how common it was (iOS-11-era dataset, dominated by
-   update/battery complaints). Short conversational follow-ups ("Yes", "Thanks!") explicitly out of
-   scope for classification.
+   `billing_purchase`, `hardware_issue`, `how_to_info`, `store_order_service`.
+   - Battery split out from software_bug specifically because of how common it was (iOS-11-era
+     dataset, dominated by update/battery complaints).
+   - Short conversational follow-ups ("Yes", "Thanks!") explicitly out of scope for classification.
 5. **Retrieval: TF-IDF + cosine similarity**, not embeddings API — deliberately avoided another
    rate-limited Gemini dependency at 5000x the scale that already caused problems (see below).
 6. **Escalation policy: rule-based**, not another LLM call — needs to be interpretable/defensible
@@ -46,8 +47,8 @@ mandatory "what's misleading about my headline number" section, next-week plan),
 7. **Simple baseline's escalation rule**: deliberately reused the "escalate all
    account_security/billing_purchase" rule that `escalation.py` itself tried and rejected — chosen
    as a realistic "naive first attempt" for comparison, not a strawman.
-8. **Harness default subsample**: `--n 25` default (not full 175) for iteration speed; `--full` flag
-   for the real report numbers, run once and committed as `eval/results_full.json`.
+8. **Harness default subsample**: `--n 25` default (not full 175) for iteration speed; `--full`
+   flag for the real report numbers, run once and committed as `eval/results_full.json`.
 
 ## Major incidents / non-obvious findings (important for decision log + report)
 
@@ -83,61 +84,78 @@ mandatory "what's misleading about my headline number" section, next-week plan),
   explicitly as UTF-8 CSV.
 
 ### Escalation policy design — the most important finding so far
-- First version escalated automatically for `account_security`/`billing_purchase` intents (topic-
-  based rule). Tested against the 35 hand-labeled golden-set rows: only **24/35 (69%)** — most
-  those threads actually resolved fine with a standard reply; the golden-set labeling standard says
-  escalate based on whether *this specific thread* resolved cleanly, not by topic category.
-  Removed the intent-based rule, expanded `RED_FLAG_PHRASES` (prior-fix-failed language, severity
+
+#### Round 1: topic-based rule tried and rejected
+- First version escalated automatically for `account_security`/`billing_purchase` intents
+  (topic-based rule).
+- Tested against the 35 hand-labeled golden-set rows: only **24/35 (69%)** — most of those threads
+  actually resolved fine with a standard reply; the golden-set labeling standard says escalate
+  based on whether *this specific thread* resolved cleanly, not by topic category.
+- Removed the intent-based rule, expanded `RED_FLAG_PHRASES` (prior-fix-failed language, severity
   signals, lockout/data-loss language) based on what was actually in the genuinely-escalated rows.
-  Re-tested: **32/35 (91%)**.
+- Re-tested: **32/35 (91%)**.
+
+#### Round 2: overfitting discovered on a fresh sample
 - **BUT**: `eval/run_harness.py`'s `--n 25` run (a FRESH random sample, disjoint from the 35 tuning
   rows) showed the real agent's escalation policy scoring **0 precision / 0 recall** (TP=0) against
-  11 true escalate cases. First suspected eval leakage (golden-set messages exist verbatim in the
-  retrieval index used by `escalation.py`'s "no good retrieval match" signal) — found and fixed via
+  11 true escalate cases.
+- First suspected eval leakage (golden-set messages exist verbatim in the retrieval index used by
+  `escalation.py`'s "no good retrieval match" signal) — found and fixed via
   `RetrievalIndex.query(..., exclude_exact_match=True)`, threaded through `drafter.py`,
-  `escalation.py`, and the harness. **Re-ran after the fix: IDENTICAL 0/0 result.** So leakage was a
-  real bug worth fixing but NOT the actual cause. Direct diagnosis: on the 11 true-escalate rows in
-  this sample, classifier confidence was always >=85 (never triggers the 60 threshold) and **none**
-  contained any `RED_FLAG_PHRASES` substring. **Conclusion: the escalation policy is overfit to the
-  35 tuning rows and doesn't generalize** — this is probably the single most important, most honest
-  finding for the report's failure analysis and mandatory "what's misleading about my headline
-  number" section.
-- **Decision (2026-09-16, deadline day)**: discussed fixing vs. leaning into the finding for the
-  report. Decided to actually fix it — the finding is real and worth reporting either way, but a
-  keyword list was diagnosed as fundamentally unable to generalize (real escalate triggers in this
-  dataset are semantic — "that didn't do anything", "nope not on shuffle", "sadly that's not it" —
-  not shared vocabulary), so patching more keywords would still be shallow. Replaced
-  `RED_FLAG_PHRASES`/`_find_red_flags` with `_llm_red_flag_check`, one `call_llm` asking whether the
-  single incoming `customer_msg` shows a failed prior fix, lockout/data-loss, or explicit request
-  for a human — judged semantically. Confidence-threshold and retrieval-grounding checks were left
-  unchanged (not diagnosed as the problem). See `src/escalation.py` and `src/README.md` for the full
-  writeup.
-  - **Scope decision**: `decide_escalation` only ever receives the single `customer_msg` (its real
-    call site has no `brand_reply`/`customer_followup` — those only exist for retrospective
-    golden-set labeling, not at live decision time). Considered extending to multi-turn conversation
-    history (user's point: a customer who has messaged before should have that history considered)
-    but explicitly scoped out for today given the deadline — noted as next-week plan work instead.
-  - **Validated on small samples (n=3, 8, 18) using remaining free-tier quota**: fix moved
-    escalation off the hard 0/0 floor — n=18 result: precision 0.5, recall 0.25 (2 TP, 2 FP, 6 FN),
-    vs. 0/0 before the fix. Real improvement, but recall still weak and still behind the simple
-    baseline's 0.8/0.5 on this sample.
-  - **Why the simple baseline still "beats" the LLM fix on small samples — important, non-obvious**:
-    `simple_escalate(intent)` (`src/baseline_simple.py`) escalates purely by *topic category*
-    (always escalates `account_security`/`billing_purchase`) — this is the exact topic-based rule
-    that was tried and rejected for the real policy earlier (only 69% on the 35 tuning rows,
-    escalates many threads that actually resolved fine). It's a crude, broad net: on a small random
-    sample where true escalate cases happen to cluster in those topics, it gets lucky and looks
-    good, without being a defensible policy. The LLM fix is intentionally *stricter* — it only
-    escalates on a real signal in the single message itself (per the actual labeling standard), so
-    it correctly abstains on ambiguous cases rather than escalating a whole topic. Net effect: higher
-    precision-per-topic-guess isn't the same as being right for the right reason. This "simple
-    baseline beats the real agent" result is itself a good candidate for the report's "what's
-    misleading about my headline number" section — the comparison looks bad for the real agent on
-    a small sample but the simple baseline's number is inflated by a policy already known to be
-    wrong at scale.
-  - Full validation still needs the `--full` 175-row harness run once LLM API access allows it
-    (limited free-tier quota only allowed small smoke tests so far) — do not treat n=18 numbers as
-    final report numbers.
+  `escalation.py`, and the harness.
+- **Re-ran after the fix: IDENTICAL 0/0 result.** So leakage was a real bug worth fixing but NOT
+  the actual cause.
+- **Direct diagnosis**: on the 11 true-escalate rows in this sample, classifier confidence was
+  always >=85 (never triggers the 60 threshold) and **none** contained any `RED_FLAG_PHRASES`
+  substring.
+- **Conclusion**: the escalation policy is overfit to the 35 tuning rows and doesn't generalize —
+  this is probably the single most important, most honest finding for the report's failure
+  analysis and mandatory "what's misleading about my headline number" section.
+
+#### Decision (2026-09-16, deadline day): fix it, not just report it
+- Discussed fixing vs. leaning into the finding for the report.
+- Decided to actually fix it — the finding is real and worth reporting either way, but a keyword
+  list was diagnosed as fundamentally unable to generalize (real escalate triggers in this dataset
+  are semantic — "that didn't do anything", "nope not on shuffle", "sadly that's not it" — not
+  shared vocabulary), so patching more keywords would still be shallow.
+- Replaced `RED_FLAG_PHRASES`/`_find_red_flags` with `_llm_red_flag_check`, one `call_llm` asking
+  whether the single incoming `customer_msg` shows a failed prior fix, lockout/data-loss, or
+  explicit request for a human — judged semantically.
+- Confidence-threshold and retrieval-grounding checks were left unchanged (not diagnosed as the
+  problem). See `src/escalation.py` and `src/README.md` for the full writeup.
+
+**Scope decision**: `decide_escalation` only ever receives the single `customer_msg` (its real
+call site has no `brand_reply`/`customer_followup` — those only exist for retrospective golden-set
+labeling, not at live decision time).
+- Considered extending to multi-turn conversation history (user's point: a customer who has
+  messaged before should have that history considered) but explicitly scoped out for today given
+  the deadline — noted as next-week plan work instead.
+
+**Validated on small samples (n=3, 8, 18) using remaining free-tier quota**: fix moved escalation
+off the hard 0/0 floor.
+- n=18 result: precision 0.5, recall 0.25 (2 TP, 2 FP, 6 FN), vs. 0/0 before the fix.
+- Real improvement, but recall still weak and still behind the simple baseline's 0.8/0.5 on this
+  sample.
+
+**Why the simple baseline still "beats" the LLM fix on small samples — important, non-obvious**:
+- `simple_escalate(intent)` (`src/baseline_simple.py`) escalates purely by *topic category*
+  (always escalates `account_security`/`billing_purchase`) — this is the exact topic-based rule
+  that was tried and rejected for the real policy earlier (only 69% on the 35 tuning rows,
+  escalates many threads that actually resolved fine).
+- It's a crude, broad net: on a small random sample where true escalate cases happen to cluster in
+  those topics, it gets lucky and looks good, without being a defensible policy.
+- The LLM fix is intentionally *stricter* — it only escalates on a real signal in the single
+  message itself (per the actual labeling standard), so it correctly abstains on ambiguous cases
+  rather than escalating a whole topic.
+- Net effect: higher precision-per-topic-guess isn't the same as being right for the right reason.
+- This "simple baseline beats the real agent" result is itself a good candidate for the report's
+  "what's misleading about my headline number" section — the comparison looks bad for the real
+  agent on a small sample but the simple baseline's number is inflated by a policy already known to
+  be wrong at scale.
+
+Full validation still needs the `--full` 175-row harness run once LLM API access allows it (limited
+free-tier quota only allowed small smoke tests so far) — do not treat n=18 numbers as final report
+numbers.
 
 ### Golden-set labeling standard (converged through iterative review)
 `auto_or_escalate` decided per-thread based on whether the actual `brand_reply`/`customer_followup`
@@ -212,28 +230,31 @@ This standard is documented in `eval/README.md` and directly encoded into `src/e
 - `requirements.txt` — has `google-genai` not `openai`
 
 ## Current blocker (as of 2026-09-16, deadline day)
-Gemini free tier stopped being usable (rate limits — see "Rate limits" section above). Attempted to
-enable Google Cloud paid billing to switch to a paid Gemini tier with zero code changes; billing
-signup is failing with error `OR_BACR2_59` ("Billing setup can't be completed" / "we believe someone
-else may be trying to access your account") despite a verified payments profile and successful UPI
-mandate creation. This is a known Google-side fraud-check false-positive pattern for India signups,
-not something fixable by retrying the form repeatedly — retrying more may extend the lockout.
-**Next step if GCP retry (after a cooldown) still fails**: switch provider to Anthropic (Claude
-Haiku 4.5) or OpenAI (GPT-4o-mini) via `console.anthropic.com` / `platform.openai.com` — both are
-typically fast to set up from India and don't share this failure mode. Would require a small change
-to `src/llm.py`'s `call_llm()` to swap the client; the rest of the pipeline (classifier, drafter,
-judge, escalation) is provider-agnostic since everything routes through that one function.
-**This blocks**: the `--full` harness run, judge-vs-human agreement check, and validating the
-escalation policy fix below — all need working LLM calls.
+- Gemini free tier stopped being usable (rate limits — see "Rate limits" section above).
+- Attempted to enable Google Cloud paid billing to switch to a paid Gemini tier with zero code
+  changes; billing signup is failing with error `OR_BACR2_59` ("Billing setup can't be completed" /
+  "we believe someone else may be trying to access your account") despite a verified payments
+  profile and successful UPI mandate creation.
+- This is a known Google-side fraud-check false-positive pattern for India signups, not something
+  fixable by retrying the form repeatedly — retrying more may extend the lockout.
+- **Next step if GCP retry (after a cooldown) still fails**: switch provider to Anthropic (Claude
+  Haiku 4.5) or OpenAI (GPT-4o-mini) via `console.anthropic.com` / `platform.openai.com` — both are
+  typically fast to set up from India and don't share this failure mode.
+  - Would require a small change to `src/llm.py`'s `call_llm()` to swap the client; the rest of
+    the pipeline (classifier, drafter, judge, escalation) is provider-agnostic since everything
+    routes through that one function.
+- **This blocks**: the `--full` harness run, judge-vs-human agreement check, and validating the
+  escalation policy fix below — all need working LLM calls.
 
 ## What's NOT done yet (remaining work, roughly in priority order)
 1. ~~Finish golden-set review~~ — **DONE 2026-09-16.** All 175 rows reviewed, `[DRAFT]` tags
-   stripped. One bug found and fixed during review: row for customer id 889104 had an
-   `escalate_reason` copy-pasted from an unrelated purchase-related row (described a missing
-   purchase instead of the actual Bluetooth connectivity issue) — corrected.
+   stripped.
+   - One bug found and fixed during review: row for customer id 889104 had an `escalate_reason`
+     copy-pasted from an unrelated purchase-related row (described a missing purchase instead of
+     the actual Bluetooth connectivity issue) — corrected.
 2. ~~Decide escalation policy fix vs. lean into finding~~ — **DECIDED 2026-09-16: fixed.** See
-   "Escalation policy design" section above for the full writeup. **Not yet validated** — blocked on
-   LLM API access, see "Current blocker" above.
+   "Escalation policy design" section above for the full writeup.
+   - **Not yet validated** — blocked on LLM API access, see "Current blocker" above.
 3. **Judge-vs-human agreement check** — required by the assignment, not yet built. Need to hand-
    score a subset of judge_reply outputs and compute agreement (e.g. Cohen's kappa or simple %).
    Blocked on LLM API access.
