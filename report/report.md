@@ -80,25 +80,38 @@ recall against the hand labels; and LLM-judged reply quality (grounded / correct
 the reply.
 
 ### Judge-vs-human agreement
-[PENDING — not yet built as of this draft. Requires hand-scoring a subset of `judge_reply` outputs
-against the same 1-5 rubric and computing agreement (e.g. Cohen's kappa or simple % agreement)
-against the LLM judge's scores. Blocked on working LLM API access — see Section 6.]
+Built via `eval/judge_agreement.py`: samples rows from the real agent's already-judged replies (no
+new LLM calls — reuses judge scores computed during the `--full` harness run), writes a CSV for a
+human rater to hand-score the same replies on the same 1-5 rubric, then computes exact-match %,
+within-1-point %, and linear-weighted Cohen's kappa between the human and judge scores per
+dimension. [Sampling and scoring not yet executed as of this draft — results to be added once the
+hand-scoring pass is complete.]
 
 ## 3. Results
 
-**[PENDING — this section requires a `--full` (175-row) harness run, not yet completed as of this
-draft.]**
+Full 175-row harness run (`eval/results_full.json`), all three tiers:
 
-What will go here: a results table (intent accuracy / escalation accuracy-precision-recall / mean
-reply-quality scores) for trivial baseline, simple baseline, and the real agent, run against all
-175 golden-set rows, plus the judge-vs-human agreement figure from Section 2.
+| Metric | Trivial | Simple | Real agent |
+|---|---|---|---|
+| Intent accuracy | 29.1% | 68.6% | **72.6%** |
+| Escalation accuracy | 63.4% | 61.1% | **67.4%** |
+| Escalation precision | 0.00 | 0.46 | **0.59** |
+| Escalation recall | 0.00 | 0.36 | 0.38 |
+| Reply quality — grounded (1-5) | 4.00 | 3.77 | **4.67** |
+| Reply quality — correct (1-5) | 5.00 | 4.54 | **4.97** |
+| Reply quality — actionable (1-5) | 3.00 | 3.33 | **4.13** |
 
-Context available now: a 25-row preview run taken *before* the escalation-policy fix described in
-Section 4 showed the real agent's escalation policy scoring 0 precision / 0 recall — a result now
-understood to be a real overfitting bug (see Section 4), since fixed and validated (on small
-samples only, pending full validation) to no longer sit at the 0/0 floor. That preview run's numbers
-are stale and are not reported here as final — see `eval/results_preview.json` for the historical
-record and `DEVLOG.md` for the full incident timeline.
+The real agent beats both baselines on every metric except escalation recall, where it is close to
+the simple baseline (0.38 vs 0.36) rather than clearly ahead. This is a materially different
+picture from the small-sample validation referenced in earlier drafts of this report and in
+`DEVLOG.md`, where the simple baseline appeared to outperform the real agent on escalation — see
+Section 5 for why that small-sample comparison was misleading, and why this full-scale result is the
+one that should be trusted.
+
+Escalation recall (0.38) remains the weakest number here: the real agent still misses more than
+6 in 10 true escalate cases (40 false negatives out of 64 true escalate cases in this set). The
+fix described in Section 4 moved the policy from a 0/0 floor to a real, working signal, but did not
+make it comprehensive — see Section 6 for what's next on this specifically.
 
 ## 4. Failure analysis
 
@@ -120,19 +133,25 @@ semantically (does it show a failed prior fix, lockout/data-loss, or an explicit
 human), and removed the confidence-threshold signal entirely after confirming it was structurally
 incapable of catching these cases (it measures certainty about *topic*, not need for a human — two
 different questions). See decision log #12-13 and `src/escalation.py` for the full technical
-writeup. Validated so far only on small samples (n≤18) due to LLM API access being blocked on
-deadline day; full validation is pending (Section 6).
+writeup. **Validated at full scale** (Section 3): escalation precision went from 0.00 to 0.59 and
+recall from 0.00 to 0.38 on the full 175-row set — a real, substantial fix, not just a small-sample
+artifact. Recall (0.38) is still the weakest of the three metrics and is not treated as solved; see
+Section 6.
 
-### Failure 2: "the simple baseline beats the real agent" is a misleading comparison
-On small-sample validation, the simple baseline's escalation precision/recall looked better than
-the fixed real-agent policy's. This is not a real regression — the simple baseline's rule (escalate
-by topic category) is the exact rule already tested and rejected for the real policy (Section 2,
-decision log #9: only 69% match on the 35 tuning rows, escalating many threads that actually
-resolved fine). On a small sample where true escalate cases happen to cluster by topic, a crude
-broad-net rule gets lucky. The real policy is intentionally *stricter* — it only escalates on an
-actual signal found in the message, so it correctly abstains on ambiguous cases, which costs recall
-specifically on small samples. This is included here because it is exactly the kind of headline
-number that looks bad out of context but is misleading without it (see Section 5).
+### Failure 2: "the simple baseline beats the real agent" was a small-sample artifact, not a real result
+Early validation of the fix above (on samples of n≤18 rows, run while LLM API access was still
+constrained) showed the simple baseline's escalation precision/recall looking better than the fixed
+real-agent policy's. **At full scale (Section 3), this reverses**: the real agent leads the simple
+baseline on both escalation precision (0.59 vs 0.46) and accuracy (67.4% vs 61.1%), with recall
+close between the two (0.38 vs 0.36). The small-sample result was misleading for a specific,
+diagnosable reason: the simple baseline's rule (escalate by topic category) is the exact rule
+already tested and rejected for the real policy (Section 2, decision log #9: only 69% match on the
+35 tuning rows, escalating many threads that actually resolved fine). On a small sample where true
+escalate cases happened to cluster by topic, that crude broad-net rule got lucky — a coincidence
+that a larger, representative sample corrects. This is kept in the report as a concrete example of
+why small-sample validation numbers should never be treated as a substitute for a full run — not
+because the fix failed, but because the earlier comparison itself was the misleading part (see
+Section 5).
 
 ### Failure 3: retrieval eval leakage (found and fixed, but not the root cause it first looked like)
 Every golden-set message exists verbatim in the retrieval index it is queried against (since the
@@ -144,25 +163,61 @@ the same result persisted after the fix, which is what led to the deeper diagnos
 Documented as a lesson: a plausible-sounding bug fix that doesn't change the output is itself a
 useful signal that the wrong cause was diagnosed.
 
+### Failure 4: most of the remaining escalation recall gap is a structural information mismatch, not a model or data quality problem
+Manually reading a sample of the 40 false-negative rows from the full run (true label: escalate;
+agent decision: auto) shows a consistent pattern. Example: `customer_msg` "my 6S crashes on a daily
+basis since iOS 11... When can I expect a newer software update to resolve this?" is labeled
+escalate because the `customer_followup` reads "The same exact thing is happening to me since 11
+and its getting worse with each update" (`escalate_reason`: "customer asking for ETA a bot can't
+commit to"). Another: `customer_msg` "So, #ios11 made my 6s useless. Screen freezes, apps dont
+respond, everything is very slow" is labeled escalate only because its `customer_followup` reads
+"same here. literally turned the machine to a brick." In both cases, and in most of the sampled
+false negatives, **the actual escalation signal is sitting in the follow-up message, not the
+initial one** — the golden-set label was correctly determined by reading the full resolved thread
+(message, brand reply, and follow-up together), which is the right way to establish ground truth.
+But `decide_escalation` only ever receives the single incoming `customer_msg` (Section 1, "What was
+deliberately not built" — this matches its real call site: the agent decides before any reply or
+follow-up exists). The initial message alone often reads as a routine first-time bug report with no
+obvious red flag; the signal that makes it escalation-worthy (recurrence, severity building,
+"literally turned the machine to a brick") only appears once the customer responds a second time.
+This is not a golden-set quality problem — the labels are correct and match the stated standard —
+and it is not primarily a prompt-quality problem with `_llm_red_flag_check` either. It is a
+structural mismatch: the ground truth was established with information the model does not have
+access to at decision time, by design. Multi-turn conversation memory (Section 1, decision log #14,
+already named as scoped-out and next-week work) is the direct fix for this specific gap, not
+further tuning of the current single-message red-flag prompt.
+
 ## 5. What's misleading about my headline number
 
-If this report only reported "escalation accuracy: X%" or "the simple baseline beats the real
-agent on escalation," both would be actively misleading without the context in Section 4:
+If this report only reported "escalation accuracy: 67.4%" or "the simple baseline beat the real
+agent on escalation at one point during development," both would be misleading without the context
+below:
 
-- **A single escalation accuracy/precision/recall number hides *why* the policy fails.** 0/0 (or
-  any low number) on a small out-of-sample set does not mean the agent is bad at judging severity —
-  it means a keyword-based signal was overfit to 35 tuning rows and needed to be replaced with a
-  semantic judgment. Reporting the number alone, without the overfitting diagnosis, would make the
-  finding look like a dead end rather than a specific, fixable, and (partially) fixed problem.
-- **"Simple baseline beats real agent" looks like a regression, but the simple baseline's number is
-  inflated by a policy already known not to generalize** (Section 4, Failure 2). A reader
-  comparing only the headline metric would conclude the wrong thing about which system is actually
-  more trustworthy at scale.
-- **Numbers from a 25-row (or smaller) sample carry real sampling noise.** With as few as 8-25 true
-  escalate cases in a sample, a single row flipping prediction can swing precision or recall by
-  10+ percentage points. The `--full` 175-row run (Section 3, pending) is meaningfully more
-  trustworthy than any of the small-sample numbers referenced in this draft, and none of the small
-  sample numbers above should be read as final.
+- **A single escalation accuracy/precision/recall number hides *why* the policy used to fail.** 0/0
+  on the original out-of-sample test did not mean the agent was bad at judging severity — it meant a
+  keyword-based signal was overfit to 35 tuning rows and needed to be replaced with a semantic
+  judgment. Reporting only the final 0.59/0.38 precision/recall, without that history, would make
+  the fix look like routine tuning rather than what it actually was: catching and correcting a real
+  overfitting bug that a naive precision/recall check on the tuning set alone (91%!) would never
+  have revealed.
+- **Small-sample validation actively pointed the wrong direction, and this report almost reported
+  it that way.** While full LLM API access was blocked, the escalation fix was validated on samples
+  of 3, 8, and 18 rows — the largest of which showed the simple baseline beating the real agent on
+  escalation precision and recall. Had the deadline arrived before full access was restored, that
+  would have been the headline number, and it would have been wrong: the full 175-row run reverses
+  it (Section 4, Failure 2). This is the single clearest evidence in this project that a small
+  validation sample is not just "less precise" than a full run — it can point to the opposite
+  conclusion. Any number in this report drawn from fewer than the full golden set should be treated
+  with that same skepticism.
+- **Escalation recall (0.38) is still low, and headline accuracy (67.4%) hides that.** Because only
+  64 of 175 rows are true escalate cases, a policy that leans toward "auto" scores reasonably on
+  accuracy while still missing most of the cases that matter most (a missed escalation is a worse
+  failure than an unnecessary one). Precision (0.59) and recall (0.38) are the numbers that actually
+  describe this tradeoff — accuracy alone would understate how much room for improvement remains.
+  Critically, reporting recall alone also invites the wrong fix: it looks like a model-quality
+  problem (retrain, re-prompt), but Section 4's Failure 4 shows most of the remaining gap is a
+  structural information mismatch (the ground truth was labeled using follow-up messages the model
+  never sees at decision time), not a case of the model failing to recognize signals it could see.
 - **Retrieval-grounding results still carry a smaller residual risk even after the exact-match
   leakage fix**: the 5,000-row retrieval pool may contain near-duplicate (not exact) versions of a
   golden-set message from the same era of complaints, which could make grounding-availability
@@ -171,28 +226,35 @@ agent on escalation," both would be actively misleading without the context in S
 
 ## 6. Current status and next week
 
-### Blocked as of this draft
-LLM API access needed to complete Sections 2 (judge-vs-human agreement) and 3 (full results) was
-blocked for most of the final day: the free-tier Gemini quota became unusable, and switching to a
-paid provider hit unrelated account-verification issues across multiple providers (see `DEVLOG.md`
-for the full timeline). This report is being finished with that section explicitly marked pending
-rather than filled with stale or small-sample numbers presented as final.
+### Status as of this draft
+LLM API access was blocked for most of the final day (the free-tier Gemini quota became unusable,
+and paid billing signup failed across multiple providers due to account-verification issues — see
+`DEVLOG.md` for the full timeline) and was restored via AWS Bedrock (Gemma 3 27B) late in the day.
+The full 175-row harness run (Section 3) completed successfully on the restored access. The
+judge-vs-human agreement check (`eval/judge_agreement.py`) is built and reuses already-computed
+judge scores with no new API calls needed for sampling, but the hand-scoring pass itself had not
+been completed as of this draft — see Section 2.
 
 ### Next week
-1. **Run the full 175-row harness** once LLM access is unblocked, and fill in Section 3 with real
-   numbers, replacing every "pending" marker in this report.
-2. **Build the judge-vs-human agreement check** — hand-score a meaningful subset of judge outputs
-   and compute agreement, as required by the assignment.
-3. **Fully validate the escalation-policy fix** at scale (only validated on samples ≤18 rows so
-   far) — confirm the LLM red-flag judgment actually improves precision/recall on the full set, not
-   just directionally on a small sample.
-4. **Multi-turn conversation memory for escalation** (deliberately scoped out this cycle — decision
-   log #14): extend the policy to consider a customer's prior messages in the same conversation, not
-   just the single latest one, since risk signals can accumulate across turns that a single-message
-   view misses.
-5. **Address the residual retrieval near-duplicate risk** flagged in Section 5 — likely via a
+1. **Complete the judge-vs-human agreement check** — run the hand-scoring pass and fill in
+   Section 2/3 with the actual agreement numbers (exact-match %, within-1-point %, linear-weighted
+   kappa) per reply-quality dimension.
+2. **Multi-turn conversation memory for escalation is now the priority fix for recall specifically**
+   (currently 0.38, the weakest of the three headline escalation metrics per Section 5) — Section 4's
+   Failure 4 shows this directly: reading a sample of the 40 false-negative rows found the
+   escalation signal usually sits in the customer's follow-up message, not the initial one the model
+   sees. This was already scoped out this cycle for time reasons (decision log #14); the false-negative
+   analysis now gives a concrete, evidence-backed reason to prioritize it over further single-message
+   prompt tuning, which would likely show diminishing returns on this specific gap.
+3. Re-check whether any residual recall gap remains **after** multi-turn memory is added — if so,
+   that remainder (not the follow-up-dependent cases from Failure 4) is the right target for further
+   single-message red-flag prompt tuning.
+4. **Address the residual retrieval near-duplicate risk** flagged in Section 5 — likely via a
    similarity ceiling (not just exact-match exclusion) when evaluating grounding availability.
-6. **Reconsider the confidence-threshold removal's downstream effects** — it was removed because it
-   never fired correctly, but a full-scale run may reveal other cases (e.g. genuinely low-confidence
-   misclassifications) where some signal derived from classifier uncertainty is still useful, just
-   not the one that was removed.
+5. **Reconsider the confidence-threshold removal's downstream effects** — it was removed because it
+   never fired correctly on the diagnosis sample, and the full run's intent accuracy (72.6%) suggests
+   this was the right call, but worth re-examining specifically on the real agent's remaining intent
+   misclassifications (27.4% of rows) to see if any recoverable signal was lost.
+6. **Re-run with a larger/differently-sourced golden set** if time allows, to further stress-test
+   whether the retrieval near-duplicate risk (Section 5) or any other dataset-era-specific pattern is
+   inflating any of these numbers.

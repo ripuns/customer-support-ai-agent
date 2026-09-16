@@ -113,40 +113,60 @@ purposes until reviewed.
 - **Purpose**: This is the required "evaluation harness — automated metrics + an LLM-as-judge
   rubric for reply quality" deliverable, producing the numbers the report's baseline comparison and
   results sections are built from.
-- **Why a default subsample**: The real agent's classifier and drafter each make one Gemini call
-  per row, plus one judge call. With `gemini-3.6-flash` (the original default) this was throttled to
-  ~12.5s/call, making a full 175-row run take ~2.5 hours — and that model turned out to also have a
-  hard 20-requests/day cap on this key (see `src/llm.py`'s rate-limit finding), making even a 25-row
-  preview run unreliable. After switching `DEFAULT_MODEL` to `gemini-3.1-flash-lite` (~3-4s/call,
-  no observed daily cap), a 25-row run across all three tiers completes in under 10 minutes. `--n 25`
-  remains the default; the actual report numbers come from a `--full` run, executed once and
-  committed as `eval/results_full.json` so reproducing the report's headline numbers doesn't require
-  re-running the full pass.
-- **Verified**: Smoke-tested end-to-end at `--n 3`. A first `--n 25` run using `gemini-3.6-flash`
-  died partway through the simple-baseline pass after hitting the (then-undiscovered) daily quota.
-  After switching to `gemini-3.1-flash-lite`, a `--n 25` run completed successfully but revealed the
-  eval leakage bug (real agent's escalation precision/recall both 0.0 — see below). After adding
-  `exclude_exact_match=True` throughout, re-ran `--n 25` again for real preview numbers (see
-  `eval/results_preview.json`).
-- **Eval leakage bug found via this harness, fixed — but was NOT the real cause of the 0/0 result**:
-  The first successful `--n 25` run showed the real agent's escalation policy scoring exactly
-  **0 precision / 0 recall** (TP=0) despite 13 actual escalate cases in the sample. The retrieval
-  leakage (every `golden_set.csv` message exists verbatim in the retrieval index, so
-  `escalation.py`'s "no good retrieval match" signal could never fire — see `src/retrieval.py`) was
-  fixed via `RetrievalIndex.query`'s new `exclude_exact_match` parameter, now passed as `True`
-  everywhere in this harness. Verified the fix changes real retrieval behavior (similarities dropped
-  from 1.00 to 0.21-0.49 on the same rows). **However, re-running after the fix produced the exact
-  same 0 precision / 0 recall result** — so retrieval leakage, while a real bug worth fixing, was not
-  actually what was causing the escalation misses. Direct diagnosis on the 11 true-escalate rows in
-  this sample showed classifier confidence was always >=85 (the confidence signal never fires) and
-  **none of the 11 messages contained any `RED_FLAG_PHRASES` substring** — the escalation policy's
-  keyword list, tuned against the 35 hand-labeled rows (91% match there), does not generalize to a
-  fresh random sample. See `src/README.md`'s `escalation.py` entry, "Overfitting confirmed on a
-  fresh sample," for the full finding — this is likely the single most important result for the
-  report's failure analysis. The harness output's `"caveats"` field documents the residual, smaller
-  risk that near-duplicate (not exact) messages elsewhere in the 5,000-row pool could still make
-  results somewhat optimistic.
+- **Checkpointing (added for the `--full` run on deadline day)**: each tier writes one JSON line per
+  completed row to `eval/.checkpoints/<tier>_<run_tag>.jsonl` as it goes, flushed immediately. A
+  crash, API failure, or manual interrupt partway through a `--full` run (700+ LLM calls on a live
+  key, real cost and time) can be resumed by simply re-running the same command — rows already
+  checkpointed are skipped, not re-sent to the API. Pass `--fresh` to ignore an existing checkpoint
+  and start over. Checkpoint files are gitignored (`eval/.checkpoints/`) — intermediate progress
+  state, not a deliverable.
+- **Why a default subsample**: The real agent's classifier, escalation check, and drafter each make
+  one LLM call per row, plus one judge call (4 calls/row total). With the original Gemini free-tier
+  key this was throttled and capped at 20 requests/day (see `src/llm.py`'s provider history), making
+  even a 25-row preview run unreliable. After switching to AWS Bedrock (no throttling needed), a
+  `--full` 175-row run across all three tiers completed in well under the originally-estimated 2.5
+  hours. `--n 25` remains the default for quick iteration; the actual report numbers come from a
+  `--full` run, executed once and committed as `eval/results_full.json` so reproducing the report's
+  headline numbers doesn't require re-running the full pass.
+- **Verified**: Smoke-tested end-to-end at `--n 3`, `--n 8`, `--n 18` during the escalation-policy fix
+  (see `src/README.md`'s `escalation.py` entry). **A `--full` 175-row run has completed successfully**
+  (`eval/results_full.json`, all three tiers, `full_run: true`) — these are the report's real headline
+  numbers, not preview/small-sample figures.
+- **Eval leakage bug found via this harness, fixed — but was NOT the real cause of an earlier 0/0
+  escalation result**: An early `--n 25` run (on the since-replaced Gemini-based pipeline) showed the
+  real agent's escalation policy scoring exactly **0 precision / 0 recall** (TP=0) despite 13 actual
+  escalate cases in the sample. The retrieval leakage (every `golden_set.csv` message exists verbatim
+  in the retrieval index, so `escalation.py`'s "no good retrieval match" signal could never fire — see
+  `src/retrieval.py`) was fixed via `RetrievalIndex.query`'s `exclude_exact_match` parameter, passed
+  as `True` everywhere in this harness. **Re-running after that fix produced the exact same 0/0
+  result** — so retrieval leakage, while a real bug worth fixing, was not actually what was causing
+  the escalation misses; that turned out to be the keyword-based red-flag check overfitting to its
+  tuning set (see `src/README.md`'s `escalation.py` entry for the full diagnosis and fix, since
+  validated at full scale: escalation precision 0.00 → 0.59, recall 0.00 → 0.38). The harness output's
+  `"caveats"` field documents the residual, smaller risk that near-duplicate (not exact) messages
+  elsewhere in the 5,000-row pool could still make results somewhat optimistic.
 - **Depends on**: `eval/golden_set.csv`; `src/baseline_trivial.py`, `src/baseline_simple.py`,
   `src/classifier.py`, `src/drafter.py`, `src/escalation.py`, `src/judge.py`, `src/retrieval.py`.
-- **Depended on by**: Not yet consumed by other code — its output (`results_full.json`) will be
-  referenced by `report/` once added.
+- **Depended on by**: `judge_agreement.py` (reads `eval/.checkpoints/real_agent_full.jsonl`, this
+  harness's per-row checkpoint output, to sample already-judged replies). Its output
+  (`results_full.json`) is referenced by `report/report.md`.
+
+### `judge_agreement.py`
+- **What it does**: The required judge-vs-human agreement check. Two subcommands:
+  `sample --n 50` reads `eval/.checkpoints/real_agent_full.jsonl` (this project's `--full` harness
+  run's per-row checkpoint, produced as a side effect of the checkpointing above) and writes
+  `eval/judge_agreement_sample.csv` with the customer message, the judge's existing
+  grounded/correct/actionable scores, and three empty `human_*` columns to hand-fill. `score` reads
+  the filled-in CSV and computes, per dimension: exact-match %, within-1-point %, and linear-weighted
+  Cohen's kappa (the standard chance-corrected agreement metric for ordinal 1-5 scales), writing
+  `eval/judge_agreement_results.json`.
+- **Purpose**: Satisfies the assignment's explicit "judge-vs-human agreement" requirement — without
+  this, the LLM-judge's reply-quality scores throughout this report would be trusted without any
+  check on whether they track human judgment at all.
+- **Why no new API calls**: sampling reuses judge scores already computed during
+  `eval/run_harness.py --full` (read from its checkpoint file) rather than re-drafting or re-judging
+  replies — the only new work required is the human's manual scoring pass, not additional LLM calls.
+- **Depends on**: `eval/.checkpoints/real_agent_full.jsonl` (produced by `run_harness.py --full`),
+  `eval/golden_set.csv`.
+- **Depended on by**: `report/report.md`'s judge-vs-human agreement figure, once the hand-scoring
+  pass is run.

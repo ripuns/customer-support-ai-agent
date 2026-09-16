@@ -15,14 +15,14 @@ submission documents.
 - `decision_log.md` — written directly from the project history recorded in `DEVLOG.md` (the
   session-by-session incident/decision log), condensed into the 10-15 decisions with the clearest
   non-obvious reasoning, in submission format rather than diary format.
-- `report.md` — the full report. Sections 1, 2, 4, 5, and 6 (problem framing, methodology, failure
-  analysis, "what's misleading about my headline number," and next-week plan) are written from
-  `DEVLOG.md` and the code READMEs. **Section 3 (Results) and part of Section 2 (judge-vs-human
-  agreement) are explicitly marked `[PENDING]`** — they require a `--full` 175-row harness run and a
-  hand-scored judge-agreement check, both blocked on LLM API access as of this draft (see
-  `DEVLOG.md`'s "Current blocker" entry). Do not treat this report as submission-final until those
-  sections are filled in with real numbers.
+- `report.md` — the full report. Sections 1, 3, 4, 5, and 6 (problem framing, results, failure
+  analysis, "what's misleading about my headline number," and next-week plan) are filled in with
+  real numbers from `eval/results_full.json` (the completed `--full` 175-row harness run). **Part of
+  Section 2 (judge-vs-human agreement) is still `[PENDING]`** — `eval/judge_agreement.py` is built
+  and ready (see `eval/README.md`), but the hand-scoring pass itself has not been run yet. Do not
+  treat this report as submission-final until that's filled in.
 
 ## File responsibilities
 - `decision_log.md` — 15 decisions, chronological, each with what was decided and why.
-- `report.md` — the 6-page report. See "How" above for what's pending.
+- `report.md` — the 6-page report. Results are real (from `eval/results_full.json`); judge-vs-human
+  agreement is pending hand-scoring. See "How" above.
