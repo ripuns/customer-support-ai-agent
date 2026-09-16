@@ -13,4 +13,7 @@ __pycache__/
 # os
 .DS_Store
 
+# eval harness resume checkpoints (intermediate progress, not a deliverable)
+eval/.checkpoints/
+
 _draft_labels.py

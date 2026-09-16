@@ -24,6 +24,17 @@ escalation policy scoring 0 precision/0 recall, because the "no good
 retrieval match" signal could never fire against a message that was always
 its own top match (see src/retrieval.py's RetrievalIndex.query docstring
 and src/README.md for the full discovery).
+
+Checkpointing: each tier writes one JSON line per completed row to
+eval/.checkpoints/<tier>_<n or full>.jsonl as it goes (flushed immediately,
+not buffered), keyed by row index within this run's sample. On startup each
+tier skips indices already present in its checkpoint file, so a crash,
+API failure, or manual interrupt partway through a `--full` run (700+ LLM
+calls, real cost/time on a live API key) can be resumed by simply re-running
+the same command -- already-completed rows are not re-sent to the API.
+Metrics are computed once by reading the completed checkpoint file at the
+end, so a resumed run's final numbers are identical to an uninterrupted run.
+Pass --fresh to ignore any existing checkpoint and start over.
 """
 import argparse
 import json
@@ -45,8 +56,36 @@ from src.judge import judge_reply
 from src.retrieval import RetrievalIndex
 
 GOLDEN_SET_PATH = Path("eval/golden_set.csv")
+CHECKPOINT_DIR = Path("eval/.checkpoints")
 DEFAULT_N = 25
 RANDOM_SEED = 42
+
+
+def _checkpoint_path(tier: str, run_tag: str) -> Path:
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    return CHECKPOINT_DIR / f"{tier}_{run_tag}.jsonl"
+
+
+def _load_checkpoint(path: Path) -> dict[int, dict]:
+    """Load completed rows already checkpointed, keyed by row index."""
+    if not path.exists():
+        return {}
+    completed = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            completed[row["index"]] = row
+    return completed
+
+
+def _append_checkpoint(path: Path, index: int, record: dict) -> None:
+    record = {"index": index, **record}
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+        f.flush()
 
 
 def _intent_metrics(predictions: list[str], labels: list[str]) -> dict:
@@ -71,12 +110,22 @@ def _mean_score(scores: list[dict], dimension: str) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def run_trivial(df: pd.DataFrame) -> dict:
+def run_trivial(df: pd.DataFrame, run_tag: str, fresh: bool = False) -> dict:
+    # Trivial's classify/escalate are free (no LLM call) -- only its one fixed
+    # reply's judge call is worth checkpointing, and only 1 call total either way.
+    checkpoint_path = _checkpoint_path("trivial", run_tag)
+    completed = {} if fresh else _load_checkpoint(checkpoint_path)
+
+    if 0 in completed:
+        judge_score = completed[0]
+    else:
+        judge_score = judge_reply(
+            df["customer_msg"].iloc[0], trivial_draft(df["customer_msg"].iloc[0])["reply"]
+        )
+        _append_checkpoint(checkpoint_path, 0, judge_score)
+
     intent_preds = [trivial_classify(m)["intent"] for m in df["customer_msg"]]
     escalate_preds = [trivial_escalate(m)["decision"] for m in df["customer_msg"]]
-
-    # trivial's reply is fixed: judge it once, not once per row
-    judge_score = judge_reply(df["customer_msg"].iloc[0], trivial_draft(df["customer_msg"].iloc[0])["reply"])
 
     return {
         "intent": _intent_metrics(intent_preds, df["intent_label"].tolist()),
@@ -90,17 +139,27 @@ def run_trivial(df: pd.DataFrame) -> dict:
     }
 
 
-def run_simple(df: pd.DataFrame) -> dict:
-    intent_preds = []
-    escalate_preds = []
-    judge_scores = []
+def run_simple(df: pd.DataFrame, run_tag: str, fresh: bool = False) -> dict:
+    checkpoint_path = _checkpoint_path("simple", run_tag)
+    completed = {} if fresh else _load_checkpoint(checkpoint_path)
+    if completed:
+        print(f"  resuming simple baseline: {len(completed)}/{len(df)} rows already checkpointed")
 
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="simple baseline"):
+    for i, row in tqdm(list(df.iterrows()), total=len(df), desc="simple baseline"):
+        if i in completed:
+            continue
         intent = simple_classify(row["customer_msg"])["intent"]
-        intent_preds.append(intent)
-        escalate_preds.append(simple_escalate(intent)["decision"])
+        escalate_decision = simple_escalate(intent)["decision"]
         reply = simple_draft(row["customer_msg"], intent)["reply"]
-        judge_scores.append(judge_reply(row["customer_msg"], reply))
+        judge_score = judge_reply(row["customer_msg"], reply)
+        record = {"intent": intent, "escalate_decision": escalate_decision, "judge_score": judge_score}
+        _append_checkpoint(checkpoint_path, i, record)
+        completed[i] = record
+
+    ordered = [completed[i] for i in range(len(df))]
+    intent_preds = [r["intent"] for r in ordered]
+    escalate_preds = [r["escalate_decision"] for r in ordered]
+    judge_scores = [r["judge_score"] for r in ordered]
 
     return {
         "intent": _intent_metrics(intent_preds, df["intent_label"].tolist()),
@@ -113,25 +172,36 @@ def run_simple(df: pd.DataFrame) -> dict:
     }
 
 
-def run_real_agent(df: pd.DataFrame, retrieval_index: RetrievalIndex) -> dict:
-    intent_preds = []
-    escalate_preds = []
-    judge_scores = []
+def run_real_agent(df: pd.DataFrame, retrieval_index: RetrievalIndex, run_tag: str, fresh: bool = False) -> dict:
+    checkpoint_path = _checkpoint_path("real_agent", run_tag)
+    completed = {} if fresh else _load_checkpoint(checkpoint_path)
+    if completed:
+        print(f"  resuming real agent: {len(completed)}/{len(df)} rows already checkpointed")
 
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="real agent"):
+    for i, row in tqdm(list(df.iterrows()), total=len(df), desc="real agent"):
+        if i in completed:
+            continue
         classification = classify_intent(row["customer_msg"])
-        intent_preds.append(classification["intent"])
-
         escalation = decide_escalation(
             row["customer_msg"], classification["intent"], retrieval_index,
             exclude_exact_match=True,
         )
-        escalate_preds.append(escalation["decision"])
-
         drafted = draft_reply(
             row["customer_msg"], classification["intent"], retrieval_index, exclude_exact_match=True
         )
-        judge_scores.append(judge_reply(row["customer_msg"], drafted["reply"]))
+        judge_score = judge_reply(row["customer_msg"], drafted["reply"])
+        record = {
+            "intent": classification["intent"],
+            "escalate_decision": escalation["decision"],
+            "judge_score": judge_score,
+        }
+        _append_checkpoint(checkpoint_path, i, record)
+        completed[i] = record
+
+    ordered = [completed[i] for i in range(len(df))]
+    intent_preds = [r["intent"] for r in ordered]
+    escalate_preds = [r["escalate_decision"] for r in ordered]
+    judge_scores = [r["judge_score"] for r in ordered]
 
     return {
         "intent": _intent_metrics(intent_preds, df["intent_label"].tolist()),
@@ -148,8 +218,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=DEFAULT_N,
                          help=f"Number of golden-set rows to sample (default {DEFAULT_N}). Ignored if --full.")
-    parser.add_argument("--full", action="store_true", help="Run all 175 golden-set rows (~2.5 hours).")
+    parser.add_argument("--full", action="store_true", help="Run all 175 golden-set rows.")
     parser.add_argument("--out", type=str, default=None, help="Output JSON path.")
+    parser.add_argument("--fresh", action="store_true",
+                         help="Ignore any existing checkpoint for this run and start over.")
     args = parser.parse_args()
 
     df = pd.read_csv(GOLDEN_SET_PATH)
@@ -157,17 +229,23 @@ def main():
         n = min(args.n, len(df))
         df = df.sample(n=n, random_state=RANDOM_SEED).reset_index(drop=True)
 
+    # run_tag identifies this specific run's checkpoint files -- a --full run and a
+    # --n 25 run never share or collide with each other's saved progress.
+    run_tag = "full" if args.full else f"n{len(df)}"
+
     print(f"Evaluating against {len(df)} golden-set rows ({'full set' if args.full else f'subsample of {len(df)}'})")
+    print(f"Checkpoints: {CHECKPOINT_DIR}/*_{run_tag}.jsonl "
+          f"(re-running the same command resumes from here; pass --fresh to restart)")
 
     print("\n== Trivial baseline ==")
-    trivial_results = run_trivial(df)
+    trivial_results = run_trivial(df, run_tag, fresh=args.fresh)
 
     print("\n== Simple baseline ==")
-    simple_results = run_simple(df)
+    simple_results = run_simple(df, run_tag, fresh=args.fresh)
 
     print("\n== Real agent ==")
     retrieval_index = RetrievalIndex()
-    real_agent_results = run_real_agent(df, retrieval_index)
+    real_agent_results = run_real_agent(df, retrieval_index, run_tag, fresh=args.fresh)
 
     results = {
         "n": len(df),
