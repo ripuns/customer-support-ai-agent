@@ -117,9 +117,11 @@ auto-handle vs. escalate.
   empty/invalid input or if the model's response can't be parsed into a recognized label —
   callers should treat `"unknown"` as a signal to escalate rather than guess.
 - **Purpose**: This is the actual LLM-based classifier the agent uses at inference time (as opposed
-  to `keyword_classifier.py`, which only exists to build the golden-set sampling pool). Returning a
-  confidence score alongside the label is deliberate: the escalation policy (not yet added) needs
-  low classifier confidence as one of its inputs for deciding auto vs. escalate.
+  to `keyword_classifier.py`, which only exists to build the golden-set sampling pool). The
+  confidence score is kept in the return value (other callers/analysis may still want it), but as of
+  the escalation-policy fix (see `escalation.py`) it is no longer used as an escalation signal —
+  confidence in the *topic label* was found not to correlate with whether a message actually needs a
+  human (see `escalation.py`'s "Fix 2" entry for the full diagnosis).
 - **Verified against real data**: Spot-tested against 5 sampled `eval/golden_set.csv` rows —
   correct format parsing and confidence scores on every call, no 429s (throttling in `llm.py`
   held). 2/5 matched the hand-labeled `intent_label` on this tiny sample; the mismatches were on
@@ -203,17 +205,23 @@ auto-handle vs. escalate.
   evaluation harness.
 
 ### `escalation.py`
-- **What it does**: `decide_escalation(customer_msg, intent, confidence, retrieval_index,
-  exclude_exact_match=False)` — a rule-based (not LLM-based) policy returning
-  `{"decision": "auto" | "escalate", "reasons": [...]}`. Escalates when: intent is `"unknown"` or
-  classifier confidence is below `CONFIDENCE_ESCALATE_THRESHOLD` (60); the message matches a
-  `RED_FLAG_PHRASES` substring (prior fix attempt failed, lockout/data-loss language, severity
-  signals like "brick" or "haven't even had"); or `RetrievalIndex` finds no historical match above
+- **What it does**: `decide_escalation(customer_msg, intent, retrieval_index,
+  exclude_exact_match=False)` — a hybrid policy (rule-based signal + one LLM-judged signal)
+  returning `{"decision": "auto" | "escalate", "reasons": [...]}`. Escalates when: intent is
+  `"unknown"` (classifier couldn't parse a recognized label at all); the LLM judges `customer_msg`
+  to show a red flag (prior fix attempt failed, lockout/data-loss language, explicit request for a
+  human/exception — see `_llm_red_flag_check`); or `RetrievalIndex` finds no historical match above
   `MIN_SIMILARITY_FOR_GROUNDING` (0.15). `reasons` lists exactly which checks triggered, satisfying
   the assignment's "stated reason" requirement. `exclude_exact_match` is forwarded to
   `RetrievalIndex.query` — pass `True` during evaluation (see `retrieval.py`'s eval leakage entry;
   without this, the retrieval-grounding check above can never fire against a golden-set message,
   which is how the eval leakage bug was originally discovered).
+- **Scope note**: `decide_escalation` only ever sees the single incoming `customer_msg`, matching
+  its real call site (the agent decides per incoming message, before any reply exists — it has no
+  access to `brand_reply`/`customer_followup`, which only exist for retrospective golden-set
+  labeling). Messages that reference a failed prior attempt inline are covered ("I already tried
+  restarting, still broken"); tracking risk signals across separate messages in a longer
+  conversation is not — noted as future work below.
 - **Purpose**: Deliberately rule-based rather than another LLM call — needs to be interpretable and
   defensible (a live-defense requirement of this assignment), and is built to directly encode the
   same standard used to hand-label `eval/golden_set.csv` (see that file's "Labeling standard"
@@ -243,8 +251,38 @@ auto-handle vs. escalate.
   rows, not real-world performance; the 25-row out-of-sample result is the more honest number. This
   is a central, concrete example for the report's failure analysis and "what's misleading about my
   headline number" section — a keyword list tuned by reading a small hand-labeled set will always
-  risk this kind of overfitting, and a larger or more systematic labeling pass (or a
-  learned/LLM-based escalation signal instead of keywords) would be the natural next step.
+  risk this kind of overfitting.
+- **Fix 1: `RED_FLAG_PHRASES` replaced with an LLM judgment call**. The keyword list was a ceiling,
+  not a fixable bug — the real escalate triggers in this dataset ("that didn't do anything", "nope
+  not on shuffle", "sadly that's not it") share meaning, not vocabulary, so no finite keyword list
+  will generalize. `_llm_red_flag_check(customer_msg)` replaces `_find_red_flags`: one `call_llm`
+  asking whether the message shows a failed prior fix, lockout/data-loss, or an explicit request for
+  a human — judged semantically rather than by substring match.
+- **Fix 2: `CONFIDENCE_ESCALATE_THRESHOLD` check removed entirely** (along with the `confidence`
+  parameter from `decide_escalation`'s signature). Root cause: `classify_intent`'s confidence answers
+  "how sure am I this is `battery_performance` vs. `software_bug`", not "does this need a human" — a
+  message can be 95% obviously about one topic while still desperately needing escalation. Those are
+  different questions; conflating them meant this signal was structurally incapable of catching
+  escalation-worthy cases (confirmed: on the original 11 true-escalate rows, confidence was always
+  >=85, never once triggering the threshold). Removed rather than reworked into a second
+  self-reported number, since the LLM red-flag check already answers the right question directly.
+- **Validated on small samples (n=3/8/18) using remaining free-tier quota** (full `--full` run
+  blocked on LLM API access — see project status; do not treat these as final report numbers). On a
+  fixed n=8 sample, results before and after removing the confidence check were identical
+  (precision 0.5, recall 0.33, 1 TP/1 FP/2 FN), confirming the confidence signal genuinely never
+  affected any outcome on that sample — consistent with the diagnosis above. On n=18: precision 0.5,
+  recall 0.25 (2 TP, 2 FP, 6 FN) — a real improvement over the pre-fix 0/0 floor, but still behind
+  `baseline_simple.py`'s topic-based escalation rule (0.8/0.5 on the same sample).
+- **Why the simple baseline still "wins" on small samples — worth reporting explicitly**:
+  `simple_escalate(intent)` escalates purely by topic category (always escalates
+  `account_security`/`billing_purchase`) — this is the exact rule already tried and rejected for the
+  real policy (see "Design history" above, only 69% on the 35 tuning rows, escalates many threads
+  that resolved fine). On a small sample where true escalate cases happen to cluster in those
+  topics, that broad net gets lucky. The LLM fix is intentionally stricter — it only escalates on a
+  real signal in the message itself, so it correctly abstains on ambiguous cases rather than
+  escalating a whole topic, costing recall on small samples. This "simple beats real agent" result
+  is itself good material for the report's "what's misleading about my headline number" section —
+  the simple baseline's number is inflated by a policy already known to be wrong at scale.
 - **Depends on**: `src/retrieval.py` (uses it to compute the grounding-availability signal).
 - **Depended on by**: `eval/run_harness.py`. This is also the last of the three core agent
   components (classify, draft, escalate) required by the assignment.
