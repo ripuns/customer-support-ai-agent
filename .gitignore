@@ -1,5 +1,6 @@
 #datasets
 *.csv
+!eval/golden_set.csv
 
 # secrets
 .env
