@@ -13,83 +13,71 @@ Given a single incoming customer message directed at AppleSupport on Twitter, th
    stated reason.
 
 ### What "good" means here
-"Good" is not "sounds like a helpful reply." It is measured against three specific, separately
-scored properties: is the reply **grounded** in how this brand actually handles this kind of issue
-(not generic boilerplate), is it **correct** (doesn't invent details it wasn't given), and is it
-**actionable** (gives the customer a real next step). Separately, and just as important: does the
-**escalation decision** match what a human reviewer, reading the same thread's actual outcome,
-would decide? A confident, well-written reply to a message that needed a human is not a success —
-it's the failure mode this system is specifically built to catch.
+Not "sounds like a helpful reply." Measured on:
+- **Grounded** — reflects how this brand actually handles this kind of issue, not generic
+  boilerplate.
+- **Correct** — doesn't invent details it wasn't given.
+- **Actionable** — gives the customer a real next step.
+- **Escalation match** — does the escalation decision match what a human reviewer, reading the
+  thread's actual outcome, would decide? A confident, well-written reply to a message that needed
+  a human is not a success — it's the failure mode this system is built to catch.
 
 ### What was deliberately not built
-- **No semantic embeddings for retrieval.** TF-IDF + cosine similarity was used instead of an
-  embeddings API, to avoid a second rate-limited LLM dependency running at ~5,000x the call volume
-  of the agent's own per-message calls. See decision log #5.
-- **No LLM call for the whole escalation decision.** The escalation policy checks a small number of
-  interpretable signals and reports which ones fired, rather than asking an LLM to make the whole
-  call in one opaque step — the assignment explicitly requires "a stated reason," and a single
-  black-box judgment would undermine that even if it scored well. See decision log #6.
-- **No multi-turn conversation memory.** The agent decides per incoming message, matching its real
-  call site (before any reply or follow-up exists). A customer's accumulated history across
-  multiple separate messages is not currently used. See "Next week" and decision log #14.
-- **No live/served application.** This is a pipeline and evaluation harness, not a deployed service
-  — appropriate for the scope of this assignment.
+- **No semantic embeddings for retrieval.** TF-IDF + cosine similarity instead, to avoid a second
+  rate-limited LLM dependency running at ~5,000x the call volume of the agent's own calls.
+  (Decision log #5.)
+- **No LLM call for the whole escalation decision.** Checks a small number of interpretable
+  signals and reports which fired, rather than one opaque LLM judgment — the assignment requires
+  "a stated reason." (Decision log #6.)
+- **No multi-turn conversation memory.** Decides per incoming message, matching its real call site
+  (before any reply or follow-up exists). (Decision log #6, "Scoped out"; see Failure 4 below.)
+- **No live/served application.** A pipeline and evaluation harness, not a deployed service —
+  appropriate for this assignment's scope.
 
 ## 2. Methodology
 
-### Data and thread definition
-Source: the Kaggle "Customer Support on Twitter" dataset, filtered to AppleSupport. A "thread" is
-defined as a triple: (customer message → brand reply → customer follow-up). The follow-up is what
-makes it possible to judge whether an issue actually resolved, which is the basis for the
-escalation ground truth below. Pairs with no follow-up were kept separately as a secondary dataset
-for failure analysis (what reply patterns correlate with customer abandonment), not discarded.
+**Data & thread definition** — Kaggle "Customer Support on Twitter," filtered to AppleSupport. A
+"thread" = (customer message → brand reply → customer follow-up); the follow-up is what makes it
+possible to judge whether an issue actually resolved (the basis for escalation ground truth).
+No-follow-up pairs kept as a secondary failure-analysis dataset, not discarded.
 
-### Golden evaluation set
-175 examples, stratified 25 per intent, sampled from a keyword-heuristic-classified pool of ~5,000
-threads (the heuristic is only used to build a balanced sampling pool — it is not treated as ground
-truth anywhere in scoring). Each row was hand-labeled (by the project author, with 141 of 175 rows
-initially assistant-drafted against an explicit, auditable standard and then human-reviewed and
-corrected) for: the correct intent, whether the thread should have been auto-handled or escalated,
-the reason if escalated, and a note on the actual historical reply's quality.
+**Golden evaluation set** — 175 examples, stratified 25/intent, sampled from a keyword-heuristic
+pool (heuristic used only to build a balanced sampling pool, never treated as ground truth). Each
+row hand-labeled (141 of 175 initially assistant-drafted against an explicit standard, then
+human-reviewed/corrected) for: correct intent, auto-vs-escalate, escalate reason, reply-quality
+note.
 
 **Escalation labeling standard** (converged through iterative review — see `eval/README.md`):
-decided per-thread by whether the actual `brand_reply`/`customer_followup` shows the issue
-resolving cleanly, not by topic or tone. Escalate when: the customer confirms a suggested fix did
-NOT work; the issue involves account lockout, data loss, or a financial/policy decision a bot can't
-grant; the customer explicitly asks for something requiring human judgment; or multiple
-channels/attempts already failed. Do NOT escalate purely because a topic is common across many
-customers, the tone is negative/profane without real severity, or the message is merely long. This
-standard exists specifically because an early, cruder rule (escalate by topic category) was tested
-and rejected — see Section 4.
+decided per-thread by whether the reply/follow-up shows clean resolution, not topic or tone.
+- Escalate when: a suggested fix is confirmed not to have worked; account lockout/data
+  loss/financial-policy decisions a bot can't grant; the customer explicitly needs human judgment;
+  or multiple channels/attempts already failed.
+- Do NOT escalate purely because: the topic is common, the tone is negative/profane without real
+  severity, or the message is merely long.
+- This standard exists because an earlier, cruder rule (escalate by topic) was tested and
+  rejected — see Section 4.
 
-### Baselines
-Two baselines, as required:
-- **Trivial**: always predicts the majority intent (`software_bug`), always returns one fixed
-  canned reply, always auto-handles. The floor every other approach must clear.
-- **Simple**: a free keyword-substring classifier, 7 template replies per intent, and an
-  escalation rule that escalates by topic category (always escalates `account_security` and
-  `billing_purchase`). This rule was deliberately reused from an earlier version of the real
-  policy that was tested and rejected (see decision log #7, #9) — a realistic "naive first
-  attempt" for comparison, not a strawman built to lose.
+**Baselines** (both required):
+- **Trivial** — always the majority intent, one fixed canned reply, always auto. The floor.
+- **Simple** — keyword classifier, 7 template replies, escalates by topic category (always
+  `account_security`/`billing_purchase`). This rule is deliberately reused from a rejected earlier
+  version of the real policy (decision log #7, #9) — a realistic "naive first attempt," not a
+  strawman.
 
-### Evaluation harness and LLM-as-judge
-`eval/run_harness.py` runs all three tiers (trivial, simple, real agent) against a sample of the
-golden set and computes: intent classification accuracy; escalation accuracy, precision, and
-recall against the hand labels; and LLM-judged reply quality (grounded / correct / actionable, each
-1-5) via a separate judge prompt (`src/judge.py`), scored independently of the agent that produced
-the reply.
+**Evaluation harness + LLM-as-judge** — `eval/run_harness.py` runs all three tiers against the
+golden set, computing intent accuracy, escalation accuracy/precision/recall, and LLM-judged reply
+quality (grounded/correct/actionable, 1-5, via `src/judge.py`, scored independently of the agent
+that drafted the reply).
 
-### Judge-vs-human agreement
-Built via `eval/judge_agreement.py`: samples rows from the real agent's already-judged replies (no
-new LLM calls — reuses judge scores computed during the `--full` harness run), writes a CSV for a
-human rater to hand-score the same replies on the same 1-5 rubric, then computes exact-match %,
-within-1-point %, and linear-weighted Cohen's kappa between the human and judge scores per
-dimension. [Sampling and scoring not yet executed as of this draft — results to be added once the
-hand-scoring pass is complete.]
+**Judge-vs-human agreement** — `eval/judge_agreement.py` drafts and judges a fresh sample (so the
+judge score always matches the exact reply text being scored), writes a CSV for a human rater to
+hand-score the same rubric, then computes exact-match %, within-1-point %, and linear-weighted
+Cohen's kappa per dimension. *[Sampling built; hand-scoring pass in progress as of this draft —
+results to follow.]*
 
 ## 3. Results
 
-Full 175-row harness run (`eval/results_full.json`), all three tiers:
+Full 175-row harness run (`eval/results_full.json`):
 
 | Metric | Trivial | Simple | Real agent |
 |---|---|---|---|
@@ -97,211 +85,151 @@ Full 175-row harness run (`eval/results_full.json`), all three tiers:
 | Escalation accuracy | 63.4% | 61.1% | **67.4%** |
 | Escalation precision | 0.00 | 0.46 | **0.59** |
 | Escalation recall | 0.00 | 0.36 | 0.38 |
-| Reply quality — grounded (1-5) | 4.00 | 3.77 | **4.67** |
-| Reply quality — correct (1-5) | 5.00 | 4.54 | **4.97** |
-| Reply quality — actionable (1-5) | 3.00 | 3.33 | **4.13** |
+| Grounded (1-5) | 4.00 | 3.77 | **4.67** |
+| Correct (1-5) | 5.00 | 4.54 | **4.97** |
+| Actionable (1-5) | 3.00 | 3.33 | **4.13** |
 
-The real agent beats both baselines on every metric except escalation recall, where it is close to
-the simple baseline (0.38 vs 0.36) rather than clearly ahead. This is a materially different
-picture from the small-sample validation referenced in earlier drafts of this report and in
-`DEVLOG.md`, where the simple baseline appeared to outperform the real agent on escalation — see
-Section 5 for why that small-sample comparison was misleading, and why this full-scale result is the
-one that should be trusted.
-
-Escalation recall (0.38) remains the weakest number here: the real agent still misses more than
-6 in 10 true escalate cases (40 false negatives out of 64 true escalate cases in this set). The
-fix described in Section 4 moved the policy from a 0/0 floor to a real, working signal, but did not
-make it comprehensive — see Section 6 for what's next on this specifically.
+- The real agent wins on every metric except escalation recall, where it's close to the simple
+  baseline (0.38 vs 0.36) rather than clearly ahead.
+- This **reverses** the small-sample picture reported earlier (where the simple baseline looked
+  better on escalation) — see Section 5 for why that comparison was misleading, and why this
+  full-scale result is the one to trust.
+- **Escalation recall (0.38) is the weakest number**: the agent still misses 40 of 64 true
+  escalate cases. The fix in Section 4 moved the policy off a 0/0 floor but didn't make it
+  comprehensive — see Section 6.
 
 ## 4. Failure analysis
 
-### Failure 1: the escalation policy was overfit to its own tuning set
-The escalation policy's red-flag check was originally a hardcoded list of ~30 phrases (e.g.
-"didn't work," "locked out," "speak to a human"), tuned by reading 35 hand-labeled rows until it
-matched 32/35 (91%) of them. Run against a *different*, disjoint 25-row sample, it scored **0
-precision and 0 recall** — it missed every single true escalate case. Direct diagnosis: on the 11
-true-escalate rows in that sample, none contained any of the ~30 hardcoded phrases, and the
-classifier's confidence score (also used as an escalation signal) was always ≥85, never triggering
-its threshold. The real cause was not a bug in the code — it was that a keyword list built by
-reading a small sample memorizes the specific sentences in that sample rather than the underlying
-pattern. The messages that actually needed escalation phrased "the fix didn't work" in dozens of
-different ways ("nope not on shuffle," "sadly that's not it," "still just gives me a link") that
-share meaning but not vocabulary — no finite keyword list generalizes to that.
+### Failure 1 — Escalation policy overfit to its own tuning set
+- Red-flag check was originally ~30 hardcoded phrases, tuned on 35 hand-labeled rows to 32/35
+  (91%). On a disjoint 25-row sample: **0 precision, 0 recall** — missed every true escalate case.
+- Diagnosis: none of the 11 true-escalate rows contained any hardcoded phrase; classifier
+  confidence (also used as a signal) was always ≥85, never triggering its threshold.
+- Root cause: a keyword list built from 35 rows memorizes those sentences, not the underlying
+  pattern. Real escalate signals ("nope not on shuffle," "sadly that's not it") share meaning, not
+  vocabulary — no finite list generalizes to that.
+- **Fix**: one LLM call judging the message semantically (failed fix / lockout / explicit human
+  request); confidence-threshold signal removed entirely (it measures topic certainty, not need
+  for a human — different questions). Decision log #12-13, `src/escalation.py`.
+- **Validated at full scale**: precision 0.00 → 0.59, recall 0.00 → 0.38. Recall still the weakest
+  metric — not treated as solved (Section 6).
 
-**Fix applied**: replaced the keyword list with a single LLM call that judges the message
-semantically (does it show a failed prior fix, lockout/data-loss, or an explicit request for a
-human), and removed the confidence-threshold signal entirely after confirming it was structurally
-incapable of catching these cases (it measures certainty about *topic*, not need for a human — two
-different questions). See decision log #12-13 and `src/escalation.py` for the full technical
-writeup. **Validated at full scale** (Section 3): escalation precision went from 0.00 to 0.59 and
-recall from 0.00 to 0.38 on the full 175-row set — a real, substantial fix, not just a small-sample
-artifact. Recall (0.38) is still the weakest of the three metrics and is not treated as solved; see
-Section 6.
+### Failure 2 — "Simple beats real agent" was a small-sample artifact, reversed at scale
+- Early validation (n≤18, while LLM access was constrained) showed the simple baseline
+  outperforming the fixed policy on escalation.
+- **At full scale this reverses**: real agent leads on precision (0.59 vs 0.46) and accuracy
+  (67.4% vs 61.1%), close on recall (0.38 vs 0.36).
+- Why the small sample misled: the simple baseline's rule is the exact topic-based rule already
+  rejected for the real policy (decision log #9 — only 69% match on tuning rows). On a small
+  sample where escalate cases happened to cluster by topic, that crude rule got lucky.
+- Kept as a concrete example of why small-sample validation should never substitute for a full
+  run — the earlier comparison was the misleading part, not the fix (Section 5).
 
-### Failure 2: "the simple baseline beats the real agent" was a small-sample artifact, not a real result
-Early validation of the fix above (on samples of n≤18 rows, run while LLM API access was still
-constrained) showed the simple baseline's escalation precision/recall looking better than the fixed
-real-agent policy's. **At full scale (Section 3), this reverses**: the real agent leads the simple
-baseline on both escalation precision (0.59 vs 0.46) and accuracy (67.4% vs 61.1%), with recall
-close between the two (0.38 vs 0.36). The small-sample result was misleading for a specific,
-diagnosable reason: the simple baseline's rule (escalate by topic category) is the exact rule
-already tested and rejected for the real policy (Section 2, decision log #9: only 69% match on the
-35 tuning rows, escalating many threads that actually resolved fine). On a small sample where true
-escalate cases happened to cluster by topic, that crude broad-net rule got lucky — a coincidence
-that a larger, representative sample corrects. This is kept in the report as a concrete example of
-why small-sample validation numbers should never be treated as a substitute for a full run — not
-because the fix failed, but because the earlier comparison itself was the misleading part (see
-Section 5).
+### Failure 3 — Retrieval eval leakage (found, fixed, but not the actual cause of the 0/0 result)
+- Every golden-set message exists verbatim in its own retrieval index, so the "no good match"
+  escalation signal could never fire during eval — a message always finds itself at similarity
+  1.00. Fixed via `exclude_exact_match`, threaded through retrieval/drafting/escalation.
+- Fixing it did **not** fix the 0/0 escalation result — same result persisted, which is what led
+  to the real diagnosis in Failure 1.
+- Lesson: a plausible bug fix that doesn't change the output is itself a signal the wrong cause
+  was diagnosed.
 
-### Failure 3: retrieval eval leakage (found and fixed, but not the root cause it first looked like)
-Every golden-set message exists verbatim in the retrieval index it is queried against (since the
-golden set was sampled from the same pool). This meant the "no good retrieval match" escalation
-signal could never fire during evaluation — a message always finds itself at similarity 1.00.
-Fixed via an `exclude_exact_match` parameter threaded through retrieval, drafting, and escalation.
-Worth including here specifically because fixing it did *not* fix the 0/0 escalation result above —
-the same result persisted after the fix, which is what led to the deeper diagnosis in Failure 1.
-Documented as a lesson: a plausible-sounding bug fix that doesn't change the output is itself a
-useful signal that the wrong cause was diagnosed.
+### Failure 4 — Most of the remaining recall gap is a structural information mismatch, not a model/data problem
+- Reading the 40 false-negative rows (true label: escalate; agent said auto) shows a consistent
+  pattern:
+  - *"my 6S crashes daily... when can I expect an update?"* — escalate only because the
+    **follow-up** reads "getting worse with each update."
+  - *"iOS 11 made my 6s useless"* — escalate only because the follow-up reads "turned the machine
+    to a brick."
+- In most false negatives, **the escalation signal sits in the follow-up, not the initial
+  message**. The golden-set label correctly used the full resolved thread; `decide_escalation`
+  only ever sees the single incoming message (matching its real call site — no follow-up exists
+  yet).
+- Not a golden-set quality problem (labels are correct) and not primarily a prompt-quality problem
+  with the red-flag check. It's a structural mismatch: ground truth used information the model
+  doesn't have at decision time, by design.
+- Fix: multi-turn conversation memory (decision log #6, already scoped out this cycle) — not
+  further single-message prompt tuning.
 
-### Failure 4: most of the remaining escalation recall gap is a structural information mismatch, not a model or data quality problem
-Manually reading a sample of the 40 false-negative rows from the full run (true label: escalate;
-agent decision: auto) shows a consistent pattern. Example: `customer_msg` "my 6S crashes on a daily
-basis since iOS 11... When can I expect a newer software update to resolve this?" is labeled
-escalate because the `customer_followup` reads "The same exact thing is happening to me since 11
-and its getting worse with each update" (`escalate_reason`: "customer asking for ETA a bot can't
-commit to"). Another: `customer_msg` "So, #ios11 made my 6s useless. Screen freezes, apps dont
-respond, everything is very slow" is labeled escalate only because its `customer_followup` reads
-"same here. literally turned the machine to a brick." In both cases, and in most of the sampled
-false negatives, **the actual escalation signal is sitting in the follow-up message, not the
-initial one** — the golden-set label was correctly determined by reading the full resolved thread
-(message, brand reply, and follow-up together), which is the right way to establish ground truth.
-But `decide_escalation` only ever receives the single incoming `customer_msg` (Section 1, "What was
-deliberately not built" — this matches its real call site: the agent decides before any reply or
-follow-up exists). The initial message alone often reads as a routine first-time bug report with no
-obvious red flag; the signal that makes it escalation-worthy (recurrence, severity building,
-"literally turned the machine to a brick") only appears once the customer responds a second time.
-This is not a golden-set quality problem — the labels are correct and match the stated standard —
-and it is not primarily a prompt-quality problem with `_llm_red_flag_check` either. It is a
-structural mismatch: the ground truth was established with information the model does not have
-access to at decision time, by design. Multi-turn conversation memory (Section 1, decision log #14,
-already named as scoped-out and next-week work) is the direct fix for this specific gap, not
-further tuning of the current single-message red-flag prompt.
-
-### Failure 5: the drafter defaulted to "DM us" on nearly every reply, found by inspecting real
-output rather than by aggregate metrics
-While generating the sample for the judge-vs-human agreement check (Section 2), a check of the 40
-sampled replies showed **all 40/40 mentioned "DM"** — this was not visible in any of the harness's
-aggregate metrics (grounded/correct/actionable scores looked fine), only by reading actual output.
-Root cause, found by reading the drafter's own prompt (not guessed): `src/drafter.py`'s system
-prompt instructed the LLM to direct customers to DM whenever an issue "can't be resolved in a
-single public reply (needs account access, personal details, or a definitive fix you can't
-verify)" — a condition broad enough to match nearly every real support message, so the LLM was
-correctly following an instruction that was itself too eager to defer rather than attempt a direct
-answer.
-
-**Fix applied and validated**: rewrote the instruction to prefer a concrete troubleshooting step or
-direct answer for general how-to/software/device questions, reserving DM for genuinely
-account-specific cases (Apple ID, order/purchase details, personal account data). Validated on a
-stratified 14-row sample (2 per intent, to avoid any one intent dominating the check): **DM rate
-dropped from 100% (40/40) to 50% (7/14)**. Manually read all 14 resulting replies — the newly
-non-DM replies gave specific, real troubleshooting steps (e.g. exact Settings menu paths, a
-phishing-report procedure, step-by-step Apple Music profile-sharing instructions) rather than
-deflecting, with no invented facts observed; the remaining DM cases were genuinely account-specific
-or offered concrete steps first with DM only as a fallback. Not yet re-validated on the full
-175-row set — only this 14-row sample — so should be treated as a strong, evidenced improvement
-rather than a fully proven one at scale (see Section 6).
-
-This is included as its own failure-analysis entry because of *how* it was found: no aggregate
-metric flagged it, and a system that always defers to a human for account-specific-sounding issues
-can still score well on grounded/correct/actionable while being meaningfully less useful in
-practice than one that actually tries to help first. Reading real output, not just trusting
-summary numbers, is what caught it.
+### Failure 5 — Drafter defaulted to "DM us" on nearly every reply
+- Found by inspecting real output, not aggregate metrics: sampling replies for the judge-agreement
+  check showed **40/40 mentioned "DM."** Grounded/correct/actionable scores looked fine — this was
+  invisible in any summary number.
+- Root cause: `src/drafter.py`'s prompt told the LLM to defer to DM whenever an issue "can't be
+  resolved in a single public reply (needs account access, personal details, or a definitive fix
+  you can't verify)" — broad enough to match almost every real message. The LLM followed a too-eager
+  instruction correctly.
+- **Fix, validated**: rewrote to prefer a concrete troubleshooting step/direct answer for general
+  how-to/software/device questions, reserving DM for genuinely account-specific cases. Stratified
+  14-row sample (2/intent): **DM rate 100% (40/40) → 50% (7/14)**. Manually read all 14 replies —
+  non-DM ones gave specific real steps (exact Settings paths, a phishing-report procedure, an
+  Apple Music profile-sharing walkthrough), no invented facts. Remaining DM cases were genuinely
+  account-specific or offered steps first with DM as fallback.
+- Not yet re-validated at full 175-row scale — treat as a strong, evidenced improvement, not a
+  fully proven one (Section 6).
+- Included here because of **how** it was found: a system that always defers to a human on
+  anything account-adjacent can still score well on the rubric while being meaningfully less
+  useful. Reading real output caught what the aggregate score couldn't.
 
 ## 5. What's misleading about my headline number
 
-If this report only reported "escalation accuracy: 67.4%" or "the simple baseline beat the real
-agent on escalation at one point during development," both would be misleading without the context
-below:
-
-- **A single escalation accuracy/precision/recall number hides *why* the policy used to fail.** 0/0
-  on the original out-of-sample test did not mean the agent was bad at judging severity — it meant a
-  keyword-based signal was overfit to 35 tuning rows and needed to be replaced with a semantic
-  judgment. Reporting only the final 0.59/0.38 precision/recall, without that history, would make
-  the fix look like routine tuning rather than what it actually was: catching and correcting a real
-  overfitting bug that a naive precision/recall check on the tuning set alone (91%!) would never
-  have revealed.
-- **Small-sample validation actively pointed the wrong direction, and this report almost reported
-  it that way.** While full LLM API access was blocked, the escalation fix was validated on samples
-  of 3, 8, and 18 rows — the largest of which showed the simple baseline beating the real agent on
-  escalation precision and recall. Had the deadline arrived before full access was restored, that
-  would have been the headline number, and it would have been wrong: the full 175-row run reverses
-  it (Section 4, Failure 2). This is the single clearest evidence in this project that a small
-  validation sample is not just "less precise" than a full run — it can point to the opposite
-  conclusion. Any number in this report drawn from fewer than the full golden set should be treated
-  with that same skepticism.
-- **Escalation recall (0.38) is still low, and headline accuracy (67.4%) hides that.** Because only
-  64 of 175 rows are true escalate cases, a policy that leans toward "auto" scores reasonably on
-  accuracy while still missing most of the cases that matter most (a missed escalation is a worse
-  failure than an unnecessary one). Precision (0.59) and recall (0.38) are the numbers that actually
-  describe this tradeoff — accuracy alone would understate how much room for improvement remains.
-  Critically, reporting recall alone also invites the wrong fix: it looks like a model-quality
-  problem (retrain, re-prompt), but Section 4's Failure 4 shows most of the remaining gap is a
-  structural information mismatch (the ground truth was labeled using follow-up messages the model
-  never sees at decision time), not a case of the model failing to recognize signals it could see.
-- **A reply-quality score of 4.67/4.97/4.13 (grounded/correct/actionable) does not mean the replies
-  were actually maximally useful.** Section 4's Failure 5 shows exactly how: 100% of sampled replies
-  mentioned "DM us," a behavior invisible in the aggregate judge scores but very visible in the
-  actual reply text. A system that always defers to a human for anything account-adjacent can score
-  well on this rubric while being meaningfully less helpful than one that attempts a direct answer
-  first. This is included as its own headline-number caveat because it demonstrates a general risk
-  with aggregate LLM-judge scores specifically: they can look healthy while masking a systematic
-  behavioral pattern that only shows up by reading real output, not by trusting the number alone.
-- **Retrieval-grounding results still carry a smaller residual risk even after the exact-match
-  leakage fix**: the 5,000-row retrieval pool may contain near-duplicate (not exact) versions of a
-  golden-set message from the same era of complaints, which could make grounding-availability
-  results somewhat optimistic versus a truly unseen message. This is a smaller, harder-to-fully-fix
-  risk than the exact-match leakage bug, and is flagged rather than claimed as resolved.
+- **A single escalation number hides *why* the policy used to fail.** 0/0 on the original
+  out-of-sample test didn't mean the agent was bad at judging severity — a keyword signal was
+  overfit to 35 rows. Reporting only the final 0.59/0.38, without that history, would make the fix
+  look like routine tuning rather than catching a real overfitting bug a 91%-on-tuning-set check
+  would never have revealed.
+- **Small-sample validation pointed the wrong direction, and this report almost reported it that
+  way.** Samples of 3/8/18 rows showed the simple baseline beating the real agent. Had the deadline
+  landed before full access was restored, that would have been the headline number — and wrong:
+  the full run reverses it. The clearest evidence here that a small sample isn't just noisier, it
+  can point to the *opposite* conclusion. Every number in this report drawn from under the full
+  golden set should be treated with that same skepticism.
+- **Escalation recall (0.38) is low, and headline accuracy (67.4%) hides it.** With only 64/175
+  true escalate cases, a policy leaning toward "auto" scores fine on accuracy while missing most of
+  the cases that matter most (a missed escalation is worse than an unnecessary one). Reporting
+  recall alone also invites the wrong fix — it looks like a model-quality problem, but Failure 4
+  shows most of the gap is structural (the model never sees the follow-up the label was based on),
+  not the model failing to recognize signals it could see.
+- **4.67/4.97/4.13 reply-quality scores don't mean the replies were maximally useful.** Failure 5:
+  100% of sampled replies deferred to DM — invisible in the aggregate score, very visible in the
+  text. A system that always defers on anything account-adjacent can score well on this rubric
+  while being less helpful than one that tries to answer directly. A general risk with aggregate
+  LLM-judge scores: they can look healthy while masking a systematic behavioral pattern only
+  visible by reading real output.
+- **Retrieval-grounding results carry a smaller residual risk even after the exact-match leakage
+  fix**: the 5,000-row pool may contain near-duplicate (not exact) versions of a golden-set
+  message, which could make grounding-availability results somewhat optimistic vs. a truly unseen
+  message. Flagged, not claimed resolved.
 
 ## 6. Current status and next week
 
 ### Status as of this draft
 LLM API access was unstable across the final two days: the free-tier Gemini quota became unusable,
-paid billing signup failed across multiple providers due to account-verification issues, a
-subsequently-obtained AWS Bedrock key (via a colleague's account) worked long enough to run the
-full harness but then expired unexpectedly mid-session, and access was finally stabilized on Groq
-(see `DEVLOG.md` for the complete four-provider timeline — `src/llm.py`'s single-choke-point design
-meant every switch touched one file with zero changes to any calling code). The full 175-row
-harness run (Section 3) completed successfully on the Bedrock access window. The judge-vs-human
-agreement check (`eval/judge_agreement.py`) is built and draft+judge the same reply pair for
-consistency (2 LLM calls per sampled row), but the hand-scoring pass itself had not been completed
-as of this draft — see Section 2. A fifth finding (Section 4, Failure 5: the drafter's DM-default
-behavior) was found and fixed after the harness run, validated on a 14-row stratified sample but
-not yet re-validated at full scale.
+paid billing signup failed across multiple providers on account-verification issues, a
+subsequently-obtained AWS Bedrock key (via a colleague's account) ran the full harness but then
+expired mid-session unexpectedly, and access was finally stabilized on Groq (`DEVLOG.md` has the
+complete four-provider timeline — every switch touched one file, `src/llm.py`, with zero changes
+to any calling code). The full 175-row harness run (Section 3) completed on the Bedrock window.
+`eval/judge_agreement.py` is built; the hand-scoring pass itself is still in progress. Failure 5
+(the DM-default fix) was found and fixed after the harness run, validated on 14 rows but not yet
+re-validated at full scale.
 
-### Next week
-1. **Complete the judge-vs-human agreement check** — run the hand-scoring pass and fill in
-   Section 2/3 with the actual agreement numbers (exact-match %, within-1-point %, linear-weighted
-   kappa) per reply-quality dimension.
-2. **Re-run `--full` with the DM-default fix (Section 4, Failure 5) applied** — the fix is only
-   validated on a 14-row stratified sample (100% → 50% DM rate); confirm the improvement holds at
-   the full 175-row scale, the same way the escalation-policy fix was confirmed to hold (Section 3)
-   after initially looking weaker on small samples (Section 5).
-3. **Multi-turn conversation memory for escalation is now the priority fix for recall specifically**
-   (currently 0.38, the weakest of the three headline escalation metrics per Section 5) — Section 4's
-   Failure 4 shows this directly: reading a sample of the 40 false-negative rows found the
-   escalation signal usually sits in the customer's follow-up message, not the initial one the model
-   sees. This was already scoped out this cycle for time reasons (decision log #14); the false-negative
-   analysis now gives a concrete, evidence-backed reason to prioritize it over further single-message
-   prompt tuning, which would likely show diminishing returns on this specific gap.
-4. Re-check whether any residual recall gap remains **after** multi-turn memory is added — if so,
-   that remainder (not the follow-up-dependent cases from Failure 4) is the right target for further
-   single-message red-flag prompt tuning.
-5. **Address the residual retrieval near-duplicate risk** flagged in Section 5 — likely via a
-   similarity ceiling (not just exact-match exclusion) when evaluating grounding availability.
-6. **Reconsider the confidence-threshold removal's downstream effects** — it was removed because it
-   never fired correctly on the diagnosis sample, and the full run's intent accuracy (72.6%) suggests
-   this was the right call, but worth re-examining specifically on the real agent's remaining intent
-   misclassifications (27.4% of rows) to see if any recoverable signal was lost.
-7. **Re-run with a larger/differently-sourced golden set** if time allows, to further stress-test
-   whether the retrieval near-duplicate risk (Section 5) or any other dataset-era-specific pattern is
-   inflating any of these numbers.
+### Future Work
+1. **Complete the judge-vs-human agreement check** — finish hand-scoring, fill in Sections 2/3
+   with the real agreement numbers.
+2. **Re-run `--full` with the DM-default fix applied** — confirm the 100%→50% improvement holds at
+   full scale, the way the escalation fix was confirmed (Section 3) after initially looking weaker
+   on small samples (Section 5).
+3. **Multi-turn conversation memory for escalation — now the priority fix for recall** (0.38,
+   the weakest headline escalation metric). Failure 4 gives a concrete, evidence-backed reason to
+   prioritize this over further single-message prompt tuning, which would likely show diminishing
+   returns.
+4. Re-check any residual recall gap **after** multi-turn memory is added — that remainder (not the
+   follow-up-dependent cases from Failure 4) is the right target for further prompt tuning.
+5. **Address the residual retrieval near-duplicate risk** (Section 5) — likely a similarity
+   ceiling, not just exact-match exclusion.
+6. **Reconsider the confidence-threshold removal's downstream effects** — removed because it never
+   fired correctly on the diagnosis sample, and full-run intent accuracy (72.6%) suggests this was
+   right, but worth re-examining against the remaining 27.4% intent misclassifications.
+7. **Re-run with a larger/differently-sourced golden set** if time allows, to stress-test whether
+   the retrieval near-duplicate risk or any other dataset-era pattern is inflating these numbers.

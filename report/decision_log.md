@@ -10,8 +10,17 @@ surface than e-commerce brands like Amazon (device/software troubleshooting vs. 
 issues). A narrower surface made a 7-intent taxonomy and a small hand-labeled golden set tractable
 within the time budget.
 
-## 2. LLM provider: Gemini, not OpenAI
-Ran out of OpenAI credits, so I temporarily switched to Gemini using the free tier in Google AI Studio. Since all LLM requests run through a single wrapper (`call_llm` in `src/llm.py`), this was a quick swap rather than a major architectural shift. The rest of the pipeline (classifier, drafter, escalation, and judge) is provider-agnostic.
+## 2. LLM provider: switched four times, never touching calling code
+Started against OpenAI, switched to Gemini after running out of OpenAI credits, then to AWS
+Bedrock (Google's Gemma 3 27B) after Gemini's free tier became unusable and paid billing signup
+failed across multiple providers, then to Groq after the Bedrock API key (borrowed from a
+colleague's account) turned out to be short-lived and expired mid-session. Every switch touched
+exactly one file (`call_llm` in `src/llm.py`) with zero changes to the classifier, drafter,
+escalation, or judge modules — this is the single biggest practical payoff of isolating all LLM
+calls behind one function, proven out for real across three unplanned provider changes rather than
+just the one originally anticipated. See `DEVLOG.md`'s "LLM provider access" section for the full
+incident-by-incident history, including two cases (Bedrock, Groq) where a commonly-referenced model
+ID didn't actually exist in the account's catalog and had to be verified live before use.
 
 ## 3. Thread definition: triples, not pairs
 Defined a "thread" as (customer message → brand reply → customer follow-up) rather than just
@@ -36,6 +45,13 @@ Needs to be interpretable and defensible — the assignment explicitly requires 
 a single opaque LLM call judging the whole decision would undermine that. The policy checks three
 independent signals (unrecognized intent, an LLM-judged red-flag check on the message itself, and
 retrieval-grounding availability) and reports which ones fired. Even after replacing the keyword-based red-flag check with an LLM call (decision 12), the policy stayed multi-signal and interpretable rather than becoming one black-box judgment.
+
+**Scoped out: multi-turn conversation memory.** `decide_escalation` only ever sees the single
+incoming customer message, matching its real call site — the agent decides per incoming message,
+before any reply or follow-up exists yet. Messages that reference a failed prior attempt inline
+(very common in this dataset, e.g. "I already tried restarting, still broken") are covered; tracking
+risk signals that accumulate *across* separate messages in a longer conversation is not, and is
+noted as future work (see the failure analysis on escalation recall in the report).
 
 ## 7. Simple baseline's escalation rule reuses a rejected rule, on purpose
 `baseline_simple.py` escalates by topic category (always escalates `account_security`/
@@ -91,15 +107,30 @@ different questions, and conflating them made the signal structurally incapable 
 Removed entirely rather than reworked into a second self-reported number, since the LLM red-flag
 check (decision 12) already answers the right question directly.
 
-## 14. Scoped out: multi-turn conversation memory for escalation
-`decide_escalation` only ever sees the single incoming customer message, matching its real call
-site — the agent decides per incoming message, before any reply or follow-up exists yet. Messages that reference a failed prior attempt inline (very common in this dataset, e.g. "I already tried restarting, still broken") are covered; tracking risk signals that accumulate *across* separate messages in a longer conversation is not, and is noted as future work
+## 14. "Simple baseline beats the real agent" was a small-sample artifact — confirmed reversed at full scale
+On an early small validation sample (n≤18), `baseline_simple.py`'s topic-based escalation rule
+outperformed the fixed real-agent policy's precision/recall. At the time this looked concerning, but
+the diagnosis was: the topic-based rule is the same rule already rejected in decision 9 for not
+generalizing, and on a small sample where true escalate cases happen to cluster in
+`account_security`/`billing_purchase`, a broad topic-based net gets lucky. **This was confirmed, not
+just theorized**: the full 175-row `--full` harness run reverses the result outright — the real agent
+beats the simple baseline on escalation precision (0.59 vs 0.46) and accuracy (67.4% vs 61.1%), with
+recall close between the two (0.38 vs 0.36). Recorded here as concrete proof that small-sample
+validation numbers during this project didn't just carry more noise than full-scale numbers — one
+specific small-sample result pointed to the *opposite* conclusion from the full-scale truth. Exactly
+the kind of misleading headline number the report is required to call out, and now backed by both the
+small-sample number and the full-scale number that reverses it, not just the theory of why it might.
 
-## 15. "Simple baseline beats the real agent" is a labeling artifact, not a real regression
-On a small validation sample, `baseline_simple.py`'s topic-based escalation rule outperformed the
-fixed policy's precision/recall. This looks bad at first glance, but the topic-based rule is the same
-rule already rejected in decision 9 for not generalizing — on a small sample where true escalate
-cases happen to cluster in `account_security`/`billing_purchase`, a broad topic-based net gets lucky.
-The real policy is intentionally stricter (escalates only on an actual signal in the message), which
-costs recall on small samples but is the defensible policy at scale. Recorded here because it's easy
-to mistake "beats the real agent on this metric" for "the real agent regressed" without this context — exactly the kind of misleading headline number the report is required to call out.
+## 15. Reply drafting: rewrote the "default to DM" instruction after finding 100% of sampled replies mentioned DM
+While sampling replies for the judge-vs-human agreement check, noticed all 40/40 sampled replies
+mentioned "DM" — not visible in any aggregate metric, only by reading real output. Root cause was in
+`src/drafter.py`'s own prompt: it instructed the LLM to direct customers to DM whenever an issue
+"can't be resolved in a single public reply (needs account access, personal details, or a definitive
+fix you can't verify)" — a condition broad enough to match nearly every real support message. Rewrote
+it to prefer a concrete troubleshooting step or direct answer for general how-to/software/device
+questions, reserving DM for genuinely account-specific cases. Validated on a stratified 14-row sample
+(2 per intent, to avoid any one intent dominating): DM rate dropped from 100% (40/40) to 50% (7/14),
+with the new non-DM replies giving real, specific troubleshooting steps rather than deflecting, and
+no invented facts observed. Not yet re-validated at full 175-row scale — noted as next-week work
+rather than assumed to hold at scale without checking, given decision 14's lesson about small-sample
+numbers above.
