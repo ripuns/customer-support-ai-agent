@@ -48,8 +48,9 @@ application, so a request/response server is out of scope unless a later step ca
     - `src/classifier.py` — LLM-based intent classification.
     - `src/drafter.py` — grounded reply drafting, using `src/retrieval.py`'s TF-IDF index over
       historical resolved threads.
-    - `src/escalation.py` — rule-based auto-vs-escalate decision with a stated reason, 91% match
-      against the hand-labeled golden set.
+    - `src/escalation.py` — hybrid rule-based + LLM-judged auto-vs-escalate decision with a stated
+      reason. Validated at full scale: escalation precision 0.59, recall 0.38 (see
+      `report/report.md`'s Results and Failure Analysis for the overfitting incident this fixed).
   - **Both required baselines are implemented too**:
     - `src/baseline_trivial.py` — fixed majority-class prediction, no learning.
     - `src/baseline_simple.py` — keyword classifier + template replies + a naive intent-risk
@@ -62,17 +63,23 @@ application, so a request/response server is out of scope unless a later step ca
     and human-reviewed (see `eval/README.md`), committed to the repo (see "Reproducing" below).
   - `eval/run_harness.py` — scores the trivial baseline, simple baseline, and real agent against it
     (automated metrics + LLM-as-judge reply quality rubric), writing results as JSON.
-  - **Important finding**: a 25-row preview run (`eval/results_preview.json`, predating a
-    since-applied escalation-policy fix) originally surfaced that the real agent's escalation
-    policy scored 0 precision/0 recall on out-of-sample data despite 91% accuracy on the rows it
-    was tuned against — a real overfitting result, not a bug. See `report/report.md`'s failure
-    analysis and `src/README.md`'s `escalation.py` entry for the finding and the fix applied since.
+    `eval/results_full.json` (committed) has the actual full-scale numbers reported in
+    `report/report.md`.
+  - `eval/judge_agreement.py` — the required judge-vs-human agreement check: samples already-judged
+    replies, drafts a CSV for a human rater to hand-score, then computes exact-match %,
+    within-1-point %, and linear-weighted Cohen's kappa. `eval/judge_agreement_sample.csv` (the
+    40 hand-scored rows) and `eval/judge_agreement_results.json` (the computed agreement) are both
+    committed as evidence for the report's claims.
+  - **Notable finding, since resolved**: an early 25-row preview run originally surfaced that the
+    real agent's escalation policy scored 0 precision/0 recall on out-of-sample data despite 91%
+    accuracy on the rows it was tuned against — a real overfitting result, not a bug. Fixed and
+    validated at full scale (0.59 precision / 0.38 recall). See `report/report.md`'s failure
+    analysis and `src/README.md`'s `escalation.py` entry for the full incident.
 - `report/`
-  - `report.md` — problem framing, methodology, results, failure analysis, "what's misleading
-    about my headline number," next-week plan.
+  - `report.md` — problem framing, methodology, results, top-5 failure analysis, "what's misleading
+    about my headline number," next-week plan. Complete, including full-scale results and the
+    judge-vs-human agreement numbers.
   - `decision_log.md` — 15 non-obvious decisions with reasoning.
-  - The Results section of `report.md` is marked `[PENDING]` a full harness run and a
-    judge-vs-human agreement check — see `report/README.md`.
 - `notebooks/` — exploratory notebooks — not yet added.
 
 ## Reproducing the headline results (under 15 minutes)

@@ -30,7 +30,7 @@ Not "sounds like a helpful reply." Measured on:
   signals and reports which fired, rather than one opaque LLM judgment — the assignment requires
   "a stated reason." (Decision log #6.)
 - **No multi-turn conversation memory.** Decides per incoming message, matching its real call site
-  (before any reply or follow-up exists). (Decision log #6, "Scoped out"; see Failure 4 below.)
+  (before any reply or follow-up exists). (Decision log #6, "Scoped out"; see Failure 3 below.)
 - **No live/served application.** A pipeline and evaluation harness, not a deployed service —
   appropriate for this assignment's scope.
 
@@ -61,7 +61,7 @@ decided per-thread by whether the reply/follow-up shows clean resolution, not to
 - **Trivial** — always the majority intent, one fixed canned reply, always auto. The floor.
 - **Simple** — keyword classifier, 7 template replies, escalates by topic category (always
   `account_security`/`billing_purchase`). This rule is deliberately reused from a rejected earlier
-  version of the real policy (decision log #7, #9) — a realistic "naive first attempt," not a
+  version of the real policy (decision log #7, #8) — a realistic "naive first attempt," not a
   strawman.
 
 **Evaluation harness + LLM-as-judge** — `eval/run_harness.py` runs all three tiers against the
@@ -72,8 +72,8 @@ that drafted the reply).
 **Judge-vs-human agreement** — `eval/judge_agreement.py` drafts and judges a fresh sample (so the
 judge score always matches the exact reply text being scored), writes a CSV for a human rater to
 hand-score the same rubric, then computes exact-match %, within-1-point %, and linear-weighted
-Cohen's kappa per dimension. *[Sampling built; hand-scoring pass in progress as of this draft —
-results to follow.]*
+Cohen's kappa per dimension. Completed: 40 rows, hand-scored by the project author. Results and
+what they mean are in Section 3 and Failure 5.
 
 ## 3. Results
 
@@ -98,19 +98,37 @@ Full 175-row harness run (`eval/results_full.json`):
   escalate cases. The fix in Section 4 moved the policy off a 0/0 floor but didn't make it
   comprehensive — see Section 6.
 
+### Judge-vs-human agreement (40 hand-scored rows)
+
+| Dimension | Exact match | Within 1 point | Linear-weighted kappa |
+|---|---|---|---|
+| Grounded | 77.5% | 97.5% | 0.28 |
+| Correct | 70.0% | 87.5% | -0.05 |
+| Actionable | 72.5% | 97.5% | -0.08 |
+
+At a glance, exact-match and within-1-point look reasonable. Kappa tells the real story — see
+Failure 5 for what it means and why it's a genuinely useful finding, not just a bad number.
+
 ## 4. Failure analysis
 
 ### Failure 1 — Escalation policy overfit to its own tuning set
 - Red-flag check was originally ~30 hardcoded phrases, tuned on 35 hand-labeled rows to 32/35
   (91%). On a disjoint 25-row sample: **0 precision, 0 recall** — missed every true escalate case.
-- Diagnosis: none of the 11 true-escalate rows contained any hardcoded phrase; classifier
+- First suspected retrieval eval leakage — every golden-set message exists verbatim in its own
+  retrieval index, so the "no good match" escalation signal could never fire during eval (a
+  message always finds itself at similarity 1.00). Fixed via `exclude_exact_match`, threaded
+  through retrieval/drafting/escalation. **This did not fix the 0/0 result** — the same result
+  persisted after the fix, which is what pointed to the real cause below. Worth naming: a
+  plausible bug fix that doesn't change the output is itself a signal the wrong cause was
+  diagnosed.
+- Real diagnosis: none of the 11 true-escalate rows contained any hardcoded phrase; classifier
   confidence (also used as a signal) was always ≥85, never triggering its threshold.
 - Root cause: a keyword list built from 35 rows memorizes those sentences, not the underlying
   pattern. Real escalate signals ("nope not on shuffle," "sadly that's not it") share meaning, not
   vocabulary — no finite list generalizes to that.
 - **Fix**: one LLM call judging the message semantically (failed fix / lockout / explicit human
   request); confidence-threshold signal removed entirely (it measures topic certainty, not need
-  for a human — different questions). Decision log #12-13, `src/escalation.py`.
+  for a human — different questions). Decision log #11-12, `src/escalation.py`.
 - **Validated at full scale**: precision 0.00 → 0.59, recall 0.00 → 0.38. Recall still the weakest
   metric — not treated as solved (Section 6).
 
@@ -120,21 +138,12 @@ Full 175-row harness run (`eval/results_full.json`):
 - **At full scale this reverses**: real agent leads on precision (0.59 vs 0.46) and accuracy
   (67.4% vs 61.1%), close on recall (0.38 vs 0.36).
 - Why the small sample misled: the simple baseline's rule is the exact topic-based rule already
-  rejected for the real policy (decision log #9 — only 69% match on tuning rows). On a small
+  rejected for the real policy (decision log #8 — only 69% match on tuning rows). On a small
   sample where escalate cases happened to cluster by topic, that crude rule got lucky.
 - Kept as a concrete example of why small-sample validation should never substitute for a full
   run — the earlier comparison was the misleading part, not the fix (Section 5).
 
-### Failure 3 — Retrieval eval leakage (found, fixed, but not the actual cause of the 0/0 result)
-- Every golden-set message exists verbatim in its own retrieval index, so the "no good match"
-  escalation signal could never fire during eval — a message always finds itself at similarity
-  1.00. Fixed via `exclude_exact_match`, threaded through retrieval/drafting/escalation.
-- Fixing it did **not** fix the 0/0 escalation result — same result persisted, which is what led
-  to the real diagnosis in Failure 1.
-- Lesson: a plausible bug fix that doesn't change the output is itself a signal the wrong cause
-  was diagnosed.
-
-### Failure 4 — Most of the remaining recall gap is a structural information mismatch, not a model/data problem
+### Failure 3 — Most of the remaining recall gap is a structural information mismatch, not a model/data problem
 - Reading the 40 false-negative rows (true label: escalate; agent said auto) shows a consistent
   pattern:
   - *"my 6S crashes daily... when can I expect an update?"* — escalate only because the
@@ -151,7 +160,7 @@ Full 175-row harness run (`eval/results_full.json`):
 - Fix: multi-turn conversation memory (decision log #6, already scoped out this cycle) — not
   further single-message prompt tuning.
 
-### Failure 5 — Drafter defaulted to "DM us" on nearly every reply
+### Failure 4 — Drafter defaulted to "DM us" on nearly every reply
 - Found by inspecting real output, not aggregate metrics: sampling replies for the judge-agreement
   check showed **40/40 mentioned "DM."** Grounded/correct/actionable scores looked fine — this was
   invisible in any summary number.
@@ -171,6 +180,32 @@ Full 175-row harness run (`eval/results_full.json`):
   anything account-adjacent can still score well on the rubric while being meaningfully less
   useful. Reading real output caught what the aggregate score couldn't.
 
+### Failure 5 — The LLM judge's absolute scores are compressed near the ceiling; kappa catches it, raw agreement % doesn't
+- On the 40-row judge-vs-human check (Section 3), the judge gave 5/5 to 36-39 of 40 replies across
+  all three dimensions (mean 4.9-4.95). The human rater used a real spread — 3s and 4s included,
+  down to a 3/2 on one reply the judge scored 5/5.
+- Exact-match (70-78%) and within-1-point (88-98%) look fine on their own. **Linear-weighted kappa
+  tells a different story: 0.28 (grounded), -0.05 (correct), -0.08 (actionable)** — near zero or
+  slightly negative, meaning real agreement (after removing the part explainable by chance) is
+  essentially absent on two of the three dimensions.
+- Why raw agreement % looked fine but kappa didn't: when one rater (the judge) barely varies and
+  gives 5 almost every time, a second rater matching it happens easily by chance alone, regardless
+  of whether they're actually evaluating the same thing. Kappa specifically subtracts that
+  chance-agreement baseline out; raw exact-match and within-1-point don't, so they overstate how
+  much real signal is shared between judge and human.
+- **This is a genuinely positive finding for the agent, and a genuinely useful one for the eval
+  methodology, at the same time.** The replies themselves are good — this project's own reading of
+  real output (Failures 4 and 5) and the human rater's own scores (mostly 4s and 5s) both confirm
+  that independently. What this check caught is not "the agent is bad," it's "the LLM judge is too
+  lenient and low-variance to be trusted as a fine-grained quality signal" — exactly the kind of
+  self-critical result the judge-vs-human agreement check exists to surface, and exactly why this
+  assignment requires the check rather than just trusting the judge's own numbers.
+- **Not fixed today, deliberately**: fixing the judge's calibration (e.g. adding explicit anchors
+  for when to use 3/4 vs. 5) would require regenerating the sample — `draft_reply()` is not
+  deterministic (`temperature=0.3`), so a fresh `sample` run produces different reply text, which
+  would need a full re-score by hand. Given the cost of a second 40-row hand-scoring pass today,
+  this is scoped as next-week work (Section 6) rather than rushed.
+
 ## 5. What's misleading about my headline number
 
 - **A single escalation number hides *why* the policy used to fail.** 0/0 on the original
@@ -187,15 +222,25 @@ Full 175-row harness run (`eval/results_full.json`):
 - **Escalation recall (0.38) is low, and headline accuracy (67.4%) hides it.** With only 64/175
   true escalate cases, a policy leaning toward "auto" scores fine on accuracy while missing most of
   the cases that matter most (a missed escalation is worse than an unnecessary one). Reporting
-  recall alone also invites the wrong fix — it looks like a model-quality problem, but Failure 4
+  recall alone also invites the wrong fix — it looks like a model-quality problem, but Failure 3
   shows most of the gap is structural (the model never sees the follow-up the label was based on),
   not the model failing to recognize signals it could see.
-- **4.67/4.97/4.13 reply-quality scores don't mean the replies were maximally useful.** Failure 5:
+- **4.67/4.97/4.13 reply-quality scores don't mean the replies were maximally useful.** Failure 4:
   100% of sampled replies deferred to DM — invisible in the aggregate score, very visible in the
   text. A system that always defers on anything account-adjacent can score well on this rubric
   while being less helpful than one that tries to answer directly. A general risk with aggregate
   LLM-judge scores: they can look healthy while masking a systematic behavioral pattern only
   visible by reading real output.
+- **The 4.67/4.97/4.13 reply-quality scores in Section 3 come entirely from the LLM judge — and
+  the judge-vs-human check (Failure 5) shows its absolute scores are compressed near the ceiling.**
+  Raw agreement with a human rater looked fine (70-78% exact match), but linear-weighted kappa was
+  near zero or negative on two of three dimensions — meaning the judge's 5s don't discriminate
+  quality the way a human's scores do. This doesn't mean the replies are bad (the human rater's own
+  scores, and this project's own reading of real output in Failures 3-4, both independently confirm
+  they're generally good) — it means the *judge's absolute numbers specifically* shouldn't be read
+  as a fine-grained quality signal. Any reply-quality comparison in this report (e.g. real agent
+  4.67 vs. simple baseline 3.77 on grounded) is more trustworthy as a relative ranking than as
+  precise absolute scores.
 - **Retrieval-grounding results carry a smaller residual risk even after the exact-match leakage
   fix**: the 5,000-row pool may contain near-duplicate (not exact) versions of a golden-set
   message, which could make grounding-availability results somewhat optimistic vs. a truly unseen
@@ -209,23 +254,29 @@ paid billing signup failed across multiple providers on account-verification iss
 subsequently-obtained AWS Bedrock key (via a colleague's account) ran the full harness but then
 expired mid-session unexpectedly, and access was finally stabilized on Groq (`DEVLOG.md` has the
 complete four-provider timeline — every switch touched one file, `src/llm.py`, with zero changes
-to any calling code). The full 175-row harness run (Section 3) completed on the Bedrock window.
-`eval/judge_agreement.py` is built; the hand-scoring pass itself is still in progress. Failure 5
+to any calling code). The full 175-row harness run (Section 3) completed on the Bedrock window. The
+judge-vs-human agreement check (Section 3, Failure 5) is complete — 40 rows hand-scored, revealing
+the LLM judge's scores are compressed near the ceiling (kappa near zero/negative on two of three
+dimensions) even though the underlying replies are genuinely good by independent reading. Failure 4
 (the DM-default fix) was found and fixed after the harness run, validated on 14 rows but not yet
 re-validated at full scale.
 
 ### Future Work
-1. **Complete the judge-vs-human agreement check** — finish hand-scoring, fill in Sections 2/3
-   with the real agreement numbers.
+1. **Fix the LLM judge's calibration** (Failure 5) — add explicit score anchors (e.g. reserve 5 for
+   replies with no room for improvement, 4 for good-with-one-gap, 3 for adequate-but-generic) so it
+   stops defaulting to 5 for "seems fine." Requires a fresh 40-row hand-scoring pass afterward,
+   since `draft_reply()`'s non-determinism means a re-sample produces different reply text — not
+   attempted today given that cost, but now a well-evidenced, scoped next step rather than a vague
+   "improve the judge" item.
 2. **Re-run `--full` with the DM-default fix applied** — confirm the 100%→50% improvement holds at
    full scale, the way the escalation fix was confirmed (Section 3) after initially looking weaker
    on small samples (Section 5).
 3. **Multi-turn conversation memory for escalation — now the priority fix for recall** (0.38,
-   the weakest headline escalation metric). Failure 4 gives a concrete, evidence-backed reason to
+   the weakest headline escalation metric). Failure 3 gives a concrete, evidence-backed reason to
    prioritize this over further single-message prompt tuning, which would likely show diminishing
    returns.
 4. Re-check any residual recall gap **after** multi-turn memory is added — that remainder (not the
-   follow-up-dependent cases from Failure 4) is the right target for further prompt tuning.
+   follow-up-dependent cases from Failure 3) is the right target for further prompt tuning.
 5. **Address the residual retrieval near-duplicate risk** (Section 5) — likely a similarity
    ceiling, not just exact-match exclusion.
 6. **Reconsider the confidence-threshold removal's downstream effects** — removed because it never
