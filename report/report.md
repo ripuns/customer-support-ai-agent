@@ -187,6 +187,36 @@ access to at decision time, by design. Multi-turn conversation memory (Section 1
 already named as scoped-out and next-week work) is the direct fix for this specific gap, not
 further tuning of the current single-message red-flag prompt.
 
+### Failure 5: the drafter defaulted to "DM us" on nearly every reply, found by inspecting real
+output rather than by aggregate metrics
+While generating the sample for the judge-vs-human agreement check (Section 2), a check of the 40
+sampled replies showed **all 40/40 mentioned "DM"** — this was not visible in any of the harness's
+aggregate metrics (grounded/correct/actionable scores looked fine), only by reading actual output.
+Root cause, found by reading the drafter's own prompt (not guessed): `src/drafter.py`'s system
+prompt instructed the LLM to direct customers to DM whenever an issue "can't be resolved in a
+single public reply (needs account access, personal details, or a definitive fix you can't
+verify)" — a condition broad enough to match nearly every real support message, so the LLM was
+correctly following an instruction that was itself too eager to defer rather than attempt a direct
+answer.
+
+**Fix applied and validated**: rewrote the instruction to prefer a concrete troubleshooting step or
+direct answer for general how-to/software/device questions, reserving DM for genuinely
+account-specific cases (Apple ID, order/purchase details, personal account data). Validated on a
+stratified 14-row sample (2 per intent, to avoid any one intent dominating the check): **DM rate
+dropped from 100% (40/40) to 50% (7/14)**. Manually read all 14 resulting replies — the newly
+non-DM replies gave specific, real troubleshooting steps (e.g. exact Settings menu paths, a
+phishing-report procedure, step-by-step Apple Music profile-sharing instructions) rather than
+deflecting, with no invented facts observed; the remaining DM cases were genuinely account-specific
+or offered concrete steps first with DM only as a fallback. Not yet re-validated on the full
+175-row set — only this 14-row sample — so should be treated as a strong, evidenced improvement
+rather than a fully proven one at scale (see Section 6).
+
+This is included as its own failure-analysis entry because of *how* it was found: no aggregate
+metric flagged it, and a system that always defers to a human for account-specific-sounding issues
+can still score well on grounded/correct/actionable while being meaningfully less useful in
+practice than one that actually tries to help first. Reading real output, not just trusting
+summary numbers, is what caught it.
+
 ## 5. What's misleading about my headline number
 
 If this report only reported "escalation accuracy: 67.4%" or "the simple baseline beat the real
@@ -218,6 +248,14 @@ below:
   problem (retrain, re-prompt), but Section 4's Failure 4 shows most of the remaining gap is a
   structural information mismatch (the ground truth was labeled using follow-up messages the model
   never sees at decision time), not a case of the model failing to recognize signals it could see.
+- **A reply-quality score of 4.67/4.97/4.13 (grounded/correct/actionable) does not mean the replies
+  were actually maximally useful.** Section 4's Failure 5 shows exactly how: 100% of sampled replies
+  mentioned "DM us," a behavior invisible in the aggregate judge scores but very visible in the
+  actual reply text. A system that always defers to a human for anything account-adjacent can score
+  well on this rubric while being meaningfully less helpful than one that attempts a direct answer
+  first. This is included as its own headline-number caveat because it demonstrates a general risk
+  with aggregate LLM-judge scores specifically: they can look healthy while masking a systematic
+  behavioral pattern that only shows up by reading real output, not by trusting the number alone.
 - **Retrieval-grounding results still carry a smaller residual risk even after the exact-match
   leakage fix**: the 5,000-row retrieval pool may contain near-duplicate (not exact) versions of a
   golden-set message from the same era of complaints, which could make grounding-availability
@@ -227,34 +265,43 @@ below:
 ## 6. Current status and next week
 
 ### Status as of this draft
-LLM API access was blocked for most of the final day (the free-tier Gemini quota became unusable,
-and paid billing signup failed across multiple providers due to account-verification issues — see
-`DEVLOG.md` for the full timeline) and was restored via AWS Bedrock (Gemma 3 27B) late in the day.
-The full 175-row harness run (Section 3) completed successfully on the restored access. The
-judge-vs-human agreement check (`eval/judge_agreement.py`) is built and reuses already-computed
-judge scores with no new API calls needed for sampling, but the hand-scoring pass itself had not
-been completed as of this draft — see Section 2.
+LLM API access was unstable across the final two days: the free-tier Gemini quota became unusable,
+paid billing signup failed across multiple providers due to account-verification issues, a
+subsequently-obtained AWS Bedrock key (via a colleague's account) worked long enough to run the
+full harness but then expired unexpectedly mid-session, and access was finally stabilized on Groq
+(see `DEVLOG.md` for the complete four-provider timeline — `src/llm.py`'s single-choke-point design
+meant every switch touched one file with zero changes to any calling code). The full 175-row
+harness run (Section 3) completed successfully on the Bedrock access window. The judge-vs-human
+agreement check (`eval/judge_agreement.py`) is built and draft+judge the same reply pair for
+consistency (2 LLM calls per sampled row), but the hand-scoring pass itself had not been completed
+as of this draft — see Section 2. A fifth finding (Section 4, Failure 5: the drafter's DM-default
+behavior) was found and fixed after the harness run, validated on a 14-row stratified sample but
+not yet re-validated at full scale.
 
 ### Next week
 1. **Complete the judge-vs-human agreement check** — run the hand-scoring pass and fill in
    Section 2/3 with the actual agreement numbers (exact-match %, within-1-point %, linear-weighted
    kappa) per reply-quality dimension.
-2. **Multi-turn conversation memory for escalation is now the priority fix for recall specifically**
+2. **Re-run `--full` with the DM-default fix (Section 4, Failure 5) applied** — the fix is only
+   validated on a 14-row stratified sample (100% → 50% DM rate); confirm the improvement holds at
+   the full 175-row scale, the same way the escalation-policy fix was confirmed to hold (Section 3)
+   after initially looking weaker on small samples (Section 5).
+3. **Multi-turn conversation memory for escalation is now the priority fix for recall specifically**
    (currently 0.38, the weakest of the three headline escalation metrics per Section 5) — Section 4's
    Failure 4 shows this directly: reading a sample of the 40 false-negative rows found the
    escalation signal usually sits in the customer's follow-up message, not the initial one the model
    sees. This was already scoped out this cycle for time reasons (decision log #14); the false-negative
    analysis now gives a concrete, evidence-backed reason to prioritize it over further single-message
    prompt tuning, which would likely show diminishing returns on this specific gap.
-3. Re-check whether any residual recall gap remains **after** multi-turn memory is added — if so,
+4. Re-check whether any residual recall gap remains **after** multi-turn memory is added — if so,
    that remainder (not the follow-up-dependent cases from Failure 4) is the right target for further
    single-message red-flag prompt tuning.
-4. **Address the residual retrieval near-duplicate risk** flagged in Section 5 — likely via a
+5. **Address the residual retrieval near-duplicate risk** flagged in Section 5 — likely via a
    similarity ceiling (not just exact-match exclusion) when evaluating grounding availability.
-5. **Reconsider the confidence-threshold removal's downstream effects** — it was removed because it
+6. **Reconsider the confidence-threshold removal's downstream effects** — it was removed because it
    never fired correctly on the diagnosis sample, and the full run's intent accuracy (72.6%) suggests
    this was the right call, but worth re-examining specifically on the real agent's remaining intent
    misclassifications (27.4% of rows) to see if any recoverable signal was lost.
-6. **Re-run with a larger/differently-sourced golden set** if time allows, to further stress-test
+7. **Re-run with a larger/differently-sourced golden set** if time allows, to further stress-test
    whether the retrieval near-duplicate risk (Section 5) or any other dataset-era-specific pattern is
    inflating any of these numbers.

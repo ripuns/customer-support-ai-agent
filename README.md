@@ -30,7 +30,7 @@ Chosen after inspecting brand volumes in the dataset (`scripts/inspect_brands.py
 | **Python** | Standard for data/ML pipelines; pandas + scikit-learn ecosystem fits the tabular/text nature of the dataset and baselines. |
 | **kagglehub** | Downloads the Kaggle dataset programmatically using the user's existing Kaggle credentials, so the pipeline is reproducible from a clean clone without manually placing files. |
 | **pandas** | Dataset is a single large CSV (~2.8M rows); pandas is sufficient without introducing a database. |
-| **AWS Bedrock** (`google.gemma-3-27b-it`) | Used for intent classification, grounded reply drafting, escalation red-flag judgment, and the LLM-as-judge eval. Originally built against OpenAI, then Gemini, then switched to AWS Bedrock after the Gemini free tier became unusable and paid billing signup failed across multiple providers on deadline day — isolated behind a thin wrapper (`src/llm.py`) so the provider could be swapped without touching any calling code. See `DEVLOG.md` for the full provider-switch history. |
+| **Groq** (`openai/gpt-oss-120b`) | Used for intent classification, grounded reply drafting, escalation red-flag judgment, and the LLM-as-judge eval. Originally built against OpenAI, then Gemini, then AWS Bedrock, then Groq — each switch made in one file (`src/llm.py`) with zero calling-code changes, exercising the provider-agnostic design for real. See `DEVLOG.md` for the full provider-switch history. |
 | **scikit-learn** | Provides the simple/trivial baselines (e.g. TF-IDF classifier) that the LLM agent is measured against. |
 
 No database or web framework is used — this is a pipeline + evaluation harness, not a served
@@ -55,7 +55,7 @@ application, so a request/response server is out of scope unless a later step ca
     - `src/baseline_simple.py` — keyword classifier + template replies + a naive intent-risk
       escalation rule.
   - **Supporting modules**: `src/intents.py` (the 7-intent taxonomy), `src/llm.py` (LLM provider
-    wrapper, currently AWS Bedrock), `src/keyword_classifier.py` (used by both the golden-set
+    wrapper, currently Groq), `src/keyword_classifier.py` (used by both the golden-set
     stratification pool and the simple baseline).
 - `eval/`
   - `eval/golden_set.csv` — the 175-example stratified golden evaluation set, fully hand-labeled
@@ -89,10 +89,10 @@ time.
 **Steps:**
 
 1. `pip install -r requirements.txt`
-2. Copy `.env.example` to `.env` and set `AWS_BEARER_TOKEN_BEDROCK` (an AWS Bedrock API key with
-   access to Google's Gemma 3 27B model) and `AWS_REGION`. See `src/llm.py` for the current
-   provider — this project originally used the Gemini API and switched to AWS Bedrock; see
-   `DEVLOG.md` for why.
+2. Copy `.env.example` to `.env` and set `GROQ_API_KEY` (get one free at
+   [console.groq.com](https://console.groq.com), no card required). See `src/llm.py` for the
+   current provider — this project switched providers several times (OpenAI → Gemini → AWS
+   Bedrock → Groq); see `DEVLOG.md` for why.
 3. `python eval/run_harness.py --full` — runs the trivial baseline, simple baseline, and real agent
    against all 175 rows of the committed `eval/golden_set.csv`, writing metrics to
    `eval/results_full.json`. This is the step that reproduces the numbers in `report/report.md`.

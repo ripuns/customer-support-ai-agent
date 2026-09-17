@@ -45,35 +45,43 @@ Modules here will be composed by an eventual top-level agent entry point (not ye
   once added.
 
 ### `llm.py`
-- **What it does (current)**: Wraps AWS Bedrock behind a single
+- **What it does (current)**: Wraps the Groq API behind a single
   `call_llm(system, user, model, temperature)` function.
-  - Uses `boto3`'s `bedrock-runtime` client and Bedrock's provider-agnostic Converse API.
-  - Lazily constructs and caches a client, authenticating via Bedrock's API-key (bearer token) auth
-    from `AWS_BEARER_TOKEN_BEDROCK` (loaded via `python-dotenv` from a repo-root `.env` file; boto3
-    auto-detects this env var for services that support bearer auth, no explicit credential wiring
-    needed).
-  - Default model is `google.gemma-3-27b-it` (verified via a real `list_foundation_models()` call —
-    Bedrock's catalog name for this model, not the `amazon.gemma-3-27b-...` name it's sometimes
-    referred to as).
-  - Retries up to `MAX_RETRIES` (4) times with exponential backoff on
-    `ThrottlingException`/`ServiceUnavailableException`/`ModelTimeoutException` before raising.
+  - Uses the official `groq` SDK's `chat.completions.create`, an OpenAI-compatible interface.
+  - Lazily constructs and caches a client, authenticating via `GROQ_API_KEY` (loaded via
+    `python-dotenv` from a repo-root `.env` file).
+  - Default model is `openai/gpt-oss-120b` (verified via a real `client.models.list()` call — the
+    commonly-referenced `llama-3.3-70b-versatile` model name is not present in this account's
+    catalog, so it was not assumed).
+  - Retries up to `MAX_RETRIES` (4) times with exponential backoff on HTTP 429/500/502/503 before
+    raising.
 - **Purpose**: Single choke point for all LLM calls (classifier, drafter, escalation red-flag check,
   eval judge) so the rest of the codebase never imports a provider SDK directly — switching
   providers means changing this file only, not every caller.
-  - This was exercised for real: the file was originally written against OpenAI, then Gemini, then
-    AWS Bedrock (see "Provider history" below), and no calling code changed across any of those
-    switches.
+  - This was exercised for real, four times over: the file was originally written against OpenAI,
+    then Gemini, then AWS Bedrock, then Groq (see "Provider history" below), and no calling code
+    changed across any of those switches.
 
 #### Provider history
 - Originally written against the OpenAI API (per initial project decision), then switched to
   Gemini per user request.
-- Switched again to AWS Bedrock on deadline day after the Gemini free tier became unusable (see
-  "Rate-limit history" below) and paid billing signup failed across GCP, AWS console billing, and
-  several other providers due to account-verification issues unrelated to this project.
-- Bedrock access was obtained via a friend's already-verified AWS account using Bedrock's API-key
-  auth, which needed no IAM user/access-key setup.
-- See `DEVLOG.md` for the full incident timeline.
-- `requirements.txt` was updated accordingly (`boto3` in place of `google-genai`).
+- Switched to AWS Bedrock (Google's Gemma 3 27B model) on deadline day after the Gemini free tier
+  became unusable (see "Rate-limit history" below) and paid billing signup failed across GCP, AWS
+  console billing, and several other providers due to account-verification issues unrelated to this
+  project.
+  - Bedrock access was obtained via a friend's already-verified AWS account using Bedrock's API-key
+    (bearer token) auth, which needed no IAM user/access-key setup.
+  - Model ID (`google.gemma-3-27b-it`) was verified via a real `list_foundation_models()` call
+    rather than assumed, since Bedrock's catalog name differed from the `amazon.gemma-3-27b-...`
+    name the model is sometimes referred to as.
+  - **This access later broke**: the Bedrock API key was short-lived and expired mid-session while
+    validating an unrelated drafter prompt fix, with no warning beforehand. Since it depended on a
+    third party's token lifetime (not fully controlled by this project), it was not durable and
+    prompted the next switch rather than requesting a renewed token.
+- Switched again to Groq (free tier, no billing/card signup friction, account created directly by
+  the project author rather than borrowed) as the fourth provider.
+- See `DEVLOG.md` for the full incident timeline across all four providers.
+- `requirements.txt` was updated accordingly at each switch (`google-genai` → `boto3` → `groq`).
 
 #### Rate-limit history (two separate caps found, one at a time)
 1. **Per-minute cap**: this key's free tier capped `gemini-3.6-flash` at 5 requests/minute (`429
@@ -105,12 +113,7 @@ limit is unknown (Google does not expose it directly) — a `--full` (175-row) h
 still hit an undiscovered daily cap partway through. If it does, the fix is the same playbook used
 here: check `client.models.list()` for another candidate model, burst-test it, switch.
 
-- **Known limitation**: The SDK prints a benign stderr warning about automatic function calling
-  (AFC) on every call, recommending the Chat API pattern instead of `generate_content`. Left as-is
-  since it doesn't affect correctness and switching to the Chat API is a larger change than this
-  wrapper's current scope.
-- **Depends on**: `boto3`, `python-dotenv`; `AWS_BEARER_TOKEN_BEDROCK` and `AWS_REGION` must be set
-  in `.env`.
+- **Depends on**: `groq`, `python-dotenv`; `GROQ_API_KEY` must be set in `.env`.
 - **Depended on by**: `classifier.py`, `drafter.py`, `escalation.py`, `judge.py`.
 
 ### `keyword_classifier.py`

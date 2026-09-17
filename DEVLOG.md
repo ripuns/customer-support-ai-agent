@@ -229,22 +229,49 @@ This standard is documented in `eval/README.md` and directly encoded into `src/e
 - `.env` / `.env.example` — `GEMINI_API_KEY` (not `OPENAI_API_KEY`, provider was switched)
 - `requirements.txt` — has `google-genai` not `openai`
 
-## Current blocker (as of 2026-09-16, deadline day)
-- Gemini free tier stopped being usable (rate limits — see "Rate limits" section above).
-- Attempted to enable Google Cloud paid billing to switch to a paid Gemini tier with zero code
-  changes; billing signup is failing with error `OR_BACR2_59` ("Billing setup can't be completed" /
-  "we believe someone else may be trying to access your account") despite a verified payments
-  profile and successful UPI mandate creation.
-- This is a known Google-side fraud-check false-positive pattern for India signups, not something
-  fixable by retrying the form repeatedly — retrying more may extend the lockout.
-- **Next step if GCP retry (after a cooldown) still fails**: switch provider to Anthropic (Claude
-  Haiku 4.5) or OpenAI (GPT-4o-mini) via `console.anthropic.com` / `platform.openai.com` — both are
-  typically fast to set up from India and don't share this failure mode.
-  - Would require a small change to `src/llm.py`'s `call_llm()` to swap the client; the rest of
-    the pipeline (classifier, drafter, judge, escalation) is provider-agnostic since everything
-    routes through that one function.
-- **This blocks**: the `--full` harness run, judge-vs-human agreement check, and validating the
-  escalation policy fix below — all need working LLM calls.
+## LLM provider access — full incident history (2026-09-16/17, deadline days)
+This project switched LLM providers four times under deadline pressure. Kept as a full
+chronological record since the pattern (each provider's specific failure mode, and why the
+provider-agnostic `src/llm.py` design paid off) is genuinely useful, not just historical noise.
+
+1. **Gemini free tier stopped being usable** (rate limits — see "Rate limits" section above).
+2. **Attempted Google Cloud paid billing** to switch to a paid Gemini tier with zero code changes.
+   Billing signup failed with error `OR_BACR2_59` ("Billing setup can't be completed" / "we believe
+   someone else may be trying to access your account") despite a verified payments profile and
+   successful UPI mandate creation.
+   - This is a known Google-side fraud-check false-positive pattern for India signups, not
+     something fixable by retrying the form repeatedly — retrying more may extend the lockout.
+   - A second GCP account (different email) and OpenAI (₹500 minimum top-up friction) were also
+     considered and not pursued further given the time cost.
+3. **Switched to AWS Bedrock** (Google's Gemma 3 27B model) via a friend's already-verified AWS
+   account using Bedrock's API-key (bearer token) auth — no IAM user/access-key setup needed.
+   - Required real debugging, not guessing: the model ID `amazon.gemma-3-27b-instruct-v1:0`
+     (the commonly-referenced name) does not exist on Bedrock; the real catalog ID
+     (`google.gemma-3-27b-it`) was found via a live `list_foundation_models()` call.
+   - Also required switching from Bedrock's `invoke_model` API to its `converse` API, since
+     `invoke_model`'s request/response JSON shape is model-provider-specific and undocumented for
+     Gemma, while `converse` is standardized across all Bedrock models.
+   - Successfully used to run the full `--full` 175-row harness (see "Results" below) and validate
+     the escalation-policy fix at scale.
+   - **This access later broke**: the Bedrock API key was short-lived and expired mid-session while
+     validating an unrelated drafter prompt fix (`AccessDeniedException: Bearer Token has expired`),
+     with no warning beforehand. Since it depended on a third party's token lifetime, it was not
+     durable long-term.
+4. **Switched to Groq** (free tier, no billing/card signup friction, account created directly by
+   the project author rather than borrowed) as the fourth and final provider.
+   - Model ID again verified live rather than assumed: `llama-3.3-70b-versatile` (a commonly
+     Groq-recommended model) is not in this account's catalog; switched to `openai/gpt-oss-120b`,
+     confirmed present via `client.models.list()`.
+
+**Why this was survivable at all**: every switch touched exactly one file (`src/llm.py`) with zero
+changes to `classifier.py`, `drafter.py`, `escalation.py`, or `judge.py` — the provider-agnostic
+`call_llm()` design (decision log item, originally motivated by the OpenAI→Gemini switch) paid for
+itself concretely across three more provider changes under real time pressure.
+
+**Lesson if this recurs**: never assume a model ID from memory or from what a provider is
+"commonly known for" — verify it via a live list-models call before building around it. Two of the
+four providers above (Bedrock, Groq) had a commonly-referenced model name that turned out not to
+exist on the actual account/catalog.
 
 ## What's NOT done yet (remaining work, roughly in priority order)
 1. ~~Finish golden-set review~~ — **DONE 2026-09-16.** All 175 rows reviewed, `[DRAFT]` tags
@@ -254,24 +281,56 @@ This standard is documented in `eval/README.md` and directly encoded into `src/e
      the actual Bluetooth connectivity issue) — corrected.
 2. ~~Decide escalation policy fix vs. lean into finding~~ — **DECIDED 2026-09-16: fixed.** See
    "Escalation policy design" section above for the full writeup.
-   - **Not yet validated** — blocked on LLM API access, see "Current blocker" above.
-3. **Judge-vs-human agreement check** — required by the assignment, not yet built. Need to hand-
-   score a subset of judge_reply outputs and compute agreement (e.g. Cohen's kappa or simple %).
-   Blocked on LLM API access.
-4. **Run `--full` harness** once LLM API access is restored, to get the actual report numbers
-   (including validating the escalation policy fix above). Save as `eval/results_full.json`.
-5. **Report** (`report/`, max 6 pages) — not started. Sections required: problem framing (what
-   "good" means for AppleSupport, what was deliberately not built), results vs. both baselines,
-   top-5 failure analysis with real examples, mandatory "what's misleading about my headline
-   number" (the escalation-overfitting finding is a strong candidate here, plus the eval-leakage
-   near-miss, plus TF-IDF vs embeddings tradeoff), next-week plan.
-6. **Decision log** (10-15 non-obvious decisions + why) — lots of natural material already exists
-   from this session (see "Key decisions" and "Major incidents" above), just needs compiling into
-   the final format.
-7. **README reproducibility pass** — confirm a clean-clone run actually completes in the stated
-   time; current README's step-by-step reproduce section should already be accurate but hasn't been
-   tested end-to-end from a truly clean clone.
-8. **Submit** via the Notion form (URL was in the original assignment prompt) with repo link + report.
+   - ~~Not yet validated~~ — **VALIDATED 2026-09-16 at full scale** via the `--full` harness run
+     (see item 4 below): escalation precision 0.00 → 0.59, recall 0.00 → 0.38 on all 175 rows.
+3. ~~Judge-vs-human agreement check~~ — **BUILT 2026-09-16** (`eval/judge_agreement.py`). Sample
+   generation and hand-scoring pass **IN PROGRESS 2026-09-17** — not yet complete as of this entry.
+4. ~~Run `--full` harness~~ — **DONE 2026-09-16**, on AWS Bedrock access. Results saved to
+   `eval/results_full.json`; real agent beat both baselines on 6 of 7 headline metrics. See
+   `report/report.md` Section 3.
+5. ~~Report~~ — **DRAFTED 2026-09-16, updated 2026-09-17** with real `--full` numbers
+   (`report/report.md`). A 4th failure-analysis finding was added 2026-09-17 after noticing all 40
+   judge-agreement sample replies mentioned "DM" — see "Reply drafting — DM-default behavior" below.
+6. ~~Decision log~~ — **DONE** (`report/decision_log.md`, 15 entries).
+7. **README reproducibility pass** — still not done: confirm a clean-clone run actually completes
+   in the stated time; current README's step-by-step reproduce section should already be accurate
+   but hasn't been tested end-to-end from a truly clean clone.
+8. **Submit** via the Notion form (URL was in the original assignment prompt) with repo link +
+   report. Deadline confirmed as end-of-day 2026-09-17.
+
+## Reply drafting — DM-default behavior (found 2026-09-17, during judge-agreement sampling)
+- While generating `eval/judge_agreement_sample.csv`'s 40 sampled replies, noticed **all 40/40**
+  mentioned "DM" — checked programmatically, not just by impression.
+- **Root cause, found by reading the actual prompt** (not guessed): `src/drafter.py`'s
+  `SYSTEM_PROMPT_TEMPLATE` instructed the LLM to direct customers to DM whenever an issue "can't be
+  resolved in a single public reply (needs account access, personal details, or a definitive fix
+  you can't verify)" — a condition broad enough to match almost every real support message, so the
+  LLM was following the instruction correctly; the instruction itself was too eager to default to
+  DM instead of attempting a direct answer first.
+- **Fix applied**: rewrote the instruction to prefer a concrete troubleshooting step/direct answer
+  for general how-to/software/device questions, reserving DM for genuinely account-specific issues
+  (Apple ID, order/purchase details, personal account data) — see `src/drafter.py`.
+- **Validation**: one-shot, stratified sample (2 rows per intent, 14 total, to avoid any single
+  intent dominating the check) drafted with the updated prompt, compared DM rate against the 100%
+  (40/40) baseline.
+  - First attempt failed mid-run with `AccessDeniedException: Bearer Token has expired` — the AWS
+    Bedrock key expired unexpectedly (see "LLM provider access" section above). Re-attempted after
+    switching to Groq.
+  - **Result: DM rate dropped from 100% (40/40) to 50% (7/14)** — a real, substantial reduction,
+    not noise from the smaller sample size.
+  - **Quality check on the `no`-DM replies**: manually read all 14 replies. The rows that no longer
+    default to DM now give specific, real troubleshooting steps (exact Settings menu paths, concrete
+    actions) instead of deflecting — e.g. phishing-report steps for a suspicious-email question,
+    step-by-step Apple Music profile-sharing instructions, a full app-reinstall sequence for a
+    failed App Store download. No invented facts (order numbers, policy claims) observed in any row.
+  - **Quality check on the remaining `DM=YES` rows**: all 7 are for genuinely account-specific
+    cases (purchase/order investigation, an ambiguous "should I visit the store" question) or cases
+    where concrete troubleshooting was offered *first*, with DM kept only as a fallback if the
+    steps don't resolve it — not the old blanket default.
+  - **Conclusion**: this is a validated fix, not just a documented finding. Applied to
+    `src/drafter.py` and used for all subsequent runs; not yet re-validated on the full `--full`
+    175-row set (only the 14-row stratified sample above) — worth a fresh `--full` run if time
+    allows, to confirm the improvement holds at scale like the escalation-policy fix did.
 
 ## How to resume in a new session
 1. Read this file first.
