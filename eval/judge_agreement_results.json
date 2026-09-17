@@ -1,0 +1,20 @@
+{
+  "n": 40,
+  "dimensions": {
+    "grounded": {
+      "exact_match_pct": 0.775,
+      "within_one_point_pct": 0.975,
+      "linear_weighted_kappa": 0.2753623188405797
+    },
+    "correct": {
+      "exact_match_pct": 0.7,
+      "within_one_point_pct": 0.875,
+      "linear_weighted_kappa": -0.04615384615384621
+    },
+    "actionable": {
+      "exact_match_pct": 0.725,
+      "within_one_point_pct": 0.975,
+      "linear_weighted_kappa": -0.08108108108108092
+    }
+  }
+}

@@ -17,3 +17,6 @@ __pycache__/
 eval/.checkpoints/
 
 _draft_labels.py
+
+# excluding judge vs human agreement data to provide viable proof for the claimed results in report
+!eval/judge_agreement_sample.csv

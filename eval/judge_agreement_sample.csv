@@ -1,0 +1,248 @@
+row_index,customer_msg,agent_reply,judge_grounded,judge_correct,judge_actionable,human_grounded,human_correct,human_actionable
+156,"Yep cheers iTunes, how do I fix this? Preordered the album this week #WhoBuiltTheMoon","We’re sorry you’re having trouble with your preorder. Here are a few things to try:
+
+1. **Make sure you’re signed in** with the Apple ID you used to preorder the album (Settings → [your name]).  
+2. **Check your region** – the album must be available in the country/region associated with your Apple ID.  
+3. **Update your device** to the latest iOS/iPadOS version (Settings → General → Software Update).  
+4. Open **Music** (or iTunes on macOS), go to **Library → Purchased → Albums**, find the preorder and tap **Download**.  
+5. If you use Apple Music, ensure your subscription is active, then look for the album under **Library → Albums**.
+
+If the album still won’t appear, please send us a DM with your device model and iOS version so we can dig a little deeper.",5,5,5,5,5,5
+145,"Yes, the iPhone iOS updates 11 &amp; on have RUINED my iPhone. Barely holds a charge- hafta take my charger everywhere now, and then look for a place to plug it in. Pain in the butt for sure. Other weirdness abounds - too much to go into here. #BadAppleUpdates","We’re sorry you’re having trouble with battery life after the update. Could you let us know which iOS version your iPhone is running? In the meantime, try these steps:
+
+1. Open **Settings > Battery > Battery Health** and check the maximum capacity.  
+2. Turn on **Optimized Battery Charging** (Settings > Battery > Battery Health).  
+3. Review the Battery Usage screen to see if any apps are draining power unexpectedly and consider disabling background refresh for them (Settings > General > Background App Refresh).  
+4. If the issue persists, a quick **Settings > General > Reset > Reset All Settings** can sometimes clear update‑related glitches.
+
+Let us know the iOS version and if the battery health looks low, and we’ll help you troubleshoot further.",5,5,5,5,5,5
+101,It's on my Mac. I'm just signed out of everything I've been asked to reset my password and key log so many times I don't remember which! 😤😤,"Hi there—sorry you’re dealing with this! To get back on track you can:
+
+1. Reset your Apple ID password at iforgot.apple.com.  
+2. After the reset, sign back into iCloud on your Mac (System Settings → Apple ID).  
+3. If Keychain is still asking for a password, open **Keychain Access** → **Preferences** → **Reset My Default Keychain** and then sign in again with the new password.
+
+If you’re not sure which Apple ID you’re signed in with, check the email address you receive Apple receipts at or look in System Settings → Apple ID for the listed account.
+
+If you need more personalized help, please DM us with the email address you use for your Apple ID so we can assist you securely.",5,5,5,5,5,5
+127,"its not so much of an in-app Purchases, its they have a way to get In-App Currency by completing task, yet the developer or there support team who handles the ad's are not communicating on issues that were raised. if there going to offer something they should honor it.","We’re sorry you’re having trouble with the in‑app currency. Apple can’t manage a developer’s reward system, but you can reach the app’s support team directly from the App Store listing (tap “Support” or “Developer Website”). If you were charged for something you didn’t receive, you can also request a refund by opening the Report a Problem page in your purchase history. Let us know if you need help locating those options.",5,5,5,5,5,4
+141,Can I damage my Apple cord or what ever is in the lighting cord plug by yanking it?,"Yes—pulling on the Lightning connector can stress the cable and the port and may cause damage over time. We recommend unplugging the cable by holding the plug (not the cord) and pulling straight out, avoiding any twisting or yanking. If you notice any fraying, looseness, or connection issues, it’s best to replace the cable. Let us know which device you’re using if you’d like more specific tips!",5,5,5,4,5,5
+139,"I have ordered an iPhone x but I want to change the shipping address 'cuse I have some problems with my previous address, so how can I change it? for your notice the payment has done.",We can’t edit the address directly on Twitter. Please contact Apple Store sales support (via chat or phone) or send us a DM with your order number so we can help you update the shipping details. Thank you!,4,5,5,4,5,5
+42,how to clear this memory. I’m unable to find the path of this Documents and Data,"Hi there! To free up space used by an app’s Documents & Data you can:
+
+1. Open **Settings** > **General** > **iPhone Storage**.  
+2. Find the app in the list and tap it.  
+3. Choose **Offload App** (keeps the app data but removes the app) or **Delete App** (removes both the app and its data).  
+
+If the app itself offers a “Clear Cache” or “Delete Documents” option, you’ll see it in **Settings** > [App Name] or within the app’s own settings.
+
+Let us know which device and iOS version you’re on if you need more specific steps!",5,5,5,5,5,5
+15,"Yes, it wouldn’t work no matter where in the city I was. Maps is turned on in cellular.","We’re sorry you’re having trouble with Maps. Try these steps:
+
+1. Make sure **Location Services** is on for Maps (Settings → Privacy → Location Services).  
+2. Verify that **Cellular Data** is enabled for Maps (Settings → Maps → Cellular Data).  
+3. Restart your iPhone and, if possible, connect to a reliable Wi‑Fi network to see if the issue persists.  
+4. Check that you’re running the latest iOS version (Settings → General → Software Update).  
+5. If it’s still not working, go to Settings → General → Reset → Reset Network Settings.
+
+Could you let us know which iPhone model and iOS version you’re using? That’ll help us narrow it down.",5,5,5,5,4,4
+126,when it take the charger out it says its dead but I've been charging it for hours.,"Sorry to hear that! Try these steps:
+
+1️⃣ Use the Apple‑certified cable and power adapter that came with the device (or a known‑good one).  
+2️⃣ Check the Lightning/USB‑C port for lint or debris and clean it gently.  
+3️⃣ Plug the charger into a different wall outlet (or a different power strip).  
+4️⃣ Restart the iPhone/iPad (press and hold the side button + volume down until the slider appears, then slide to power off and turn it back on).  
+5️⃣ In **Settings > Battery > Battery Health**, see if the maximum capacity looks normal.
+
+If the problem persists, let us know the device model and iOS version (or DM us) so we can dig deeper.",5,5,5,5,3,4
+65,my phone won't update to the latest iOS software any time I try to update it and I'm connected to wifi with enough battery or my phone plugged in?,"Hi there! Let’s try a few quick checks so you can get the update installed:
+
+1. **Free space** – iOS updates need a few GB of room. Settings → General → iPhone Storage and delete anything you don’t need.  
+2. **Restart** – Power off, wait a few seconds, then turn the iPhone back on.  
+3. **Network** – Forget your Wi‑Fi network (Settings → Wi‑Fi → tap the “i”) and reconnect, or try a different Wi‑Fi hotspot.  
+4. **Date & time** – Make sure they’re set to “Set Automatically” (Settings → General → Date & Time).  
+5. **Update via computer** – Connect the iPhone to a Mac (or PC) and use Finder (macOS Catalina or later) or iTunes to install the latest iOS.
+
+If you still see the same error, could you let us know which iPhone model you’re using and the current iOS version it’s on? That’ll help narrow it down. Thanks! 🙏🏼",5,5,5,5,5,5
+112,"I go to your Uptown location in Albuquerque, NM. I get treated like absolute crap! Then I get called a liar! #paulgiamatti","We’re really sorry to hear about your experience at our Uptown store. We’d like to look into this right away. Could you please DM us with the date, time, and any order or receipt details you have? That will help us investigate and make things right. Thank you. 🙏",5,5,5,4,5,5
+60,". I thought you should know there’s an email scam going around. Here is a screenshot. Included links to “click”. Looked legit, except I didn’t order the app listed.","Thanks for flagging this! It does sound like a phishing attempt. For your safety, don’t click any links, delete the email, and you can report it to reportphishing@apple.com. If you’d like us to look into the details further, please DM us with a screenshot. Stay safe!",5,5,5,4,5,5
+45,Hi is there anyway I can get my phones shipped to our closest Apple store to pick up instead of my apartment?,"Thanks for reaching out! If your order hasn’t shipped yet you can update the delivery address (or select “Pick up in store”) from the Order Status page. If it’s already in transit, you can contact Apple Support with your order number and we can see about arranging store pickup at the nearest Apple Store. Feel free to DM us the order details so we can help you further.",5,5,5,5,5,5
+51,"Last text I promise!! :-) what it comes down to is I physically cannot purchase the variant I want, due to arbitrary restrictions. Very poor","Sorry you’re running into that roadblock. Some models are limited to certain regions or can sell out quickly, so checking availability in the Apple Store app or on apple.com for your country is a good first step. If you still can’t complete the purchase, please DM us with your location and the specific variant you’re trying to get—we’ll look into it for you.",5,5,5,5,5,5
+31,Agreed. I’m disappointed because up til then I was very happy with my phone. Best one I’ve ever had.,"We’re sorry to hear you’re disappointed. Could you share a bit more about the issue you’re seeing (model, iOS version, and what isn’t working as expected)? In the meantime, try a force‑restart and inspect the charging port or screen for debris. Let us know how it goes so we can help further.",5,5,5,4,3,4
+9,Ive received an email stating they were you. Is there an email to report forward spam spoof phishing emails?,"We’re sorry you’re seeing that. If you get a suspicious email that claims to be from Apple, please forward it to **reportphishing@apple.com** — that helps us investigate and block the sender.  
+
+In the meantime, don’t click any links or share personal info, and consider changing your Apple ID password if you think the account might be at risk.  
+
+If you need more personalized help, feel free to DM us.",5,5,5,5,5,5
+113,Why is it so hard to watch movies that I download from the Apple store? I’ve paid for it and yet phone can never seem to download it. Now it’s ‘does not support format’......,"We’re sorry you’re having trouble with your movie download. Here are a few things to try:
+
+1. **Check your device & iOS version** – Movies from the Apple Store require iOS 12 or later (or the latest tvOS).  
+2. **Make sure there’s enough free storage** – go to Settings → General → iPhone Storage.  
+3. **Update the software** – Settings → General → Software Update.  
+4. **Restart the device** and then try re‑downloading the title from the Apple TV app.  
+5. **Verify the region** – some titles aren’t available in every country.
+
+If the issue persists, could you let us know which device model and iOS version you’re using? You can also DM us with your Apple ID so we can look at the purchase details. Thanks!",5,5,5,5,5,5
+55,"it’s mostly (or all) music that I’ve manually loaded over the years, live recordings or ripped from CDs I’ve purchased.","You can add your own ripped or live‑recording files to the Music app and have them show up on all of your devices by using iCloud Music Library (Sync Library).
+
+**Quick steps**
+
+1. On a Mac or PC open the Music (or iTunes) app and drag your files into your library.  
+2. Make sure **Sync Library** is turned on:  
+   - iPhone/iPad: Settings ▶ Music ▶ turn on **Sync Library**.  
+   - Mac: Music ▶ Preferences ▶ General ▶ check **Sync Library**.  
+3. Your manually‑added songs will upload to iCloud and appear on any device signed in with the same Apple ID.
+
+If you’re seeing any issues, let us know which device and iOS/macOS version you’re using so we can help troubleshoot further.",5,5,5,5,5,5
+24,Help . My iPhone 6 will connect to unsecured wifi networks but not those requiring a password. “Invalid password” every time. (IOS 11.03).,"Sorry you’re having trouble connecting. Try these steps:
+
+1. Tap the ℹ️ next to the network, choose **Forget This Network**, then reconnect and re‑enter the password.  
+2. If that doesn’t help, go to **Settings → General → Reset → Reset Network Settings** (you’ll need to re‑enter Wi‑Fi passwords afterward).  
+3. Make sure the router is using a supported security type (WPA/WPA2 Personal) and that the password is entered exactly as shown (case‑sensitive).  
+4. Restart both your iPhone and the router.  
+
+If the problem persists, let us know your exact iOS version and whether other devices can join the same network. We’ll dig deeper!",5,5,5,5,5,5
+155,"I am getting tempted to go back to #iOS 10.3.3 , this #iOS11.0.2 , the #battery drain is too much , 3 to 4 hours 6S 😕","We’re sorry to hear the battery isn’t lasting as long as it should. While downgrading isn’t supported, you can often improve battery life with a few steps:
+
+1. **Update** – make sure your 6 S is running the latest iOS 11 release (11.0.3 or newer).  
+2. **Restart** the device.  
+3. **Check Settings > Battery** to see which apps are using the most power and consider turning off Background App Refresh for any you don’t need.  
+4. **Enable Low Power Mode** (Settings > Battery).  
+5. **Review Location Services** and other background activities that may be draining power.
+
+If the drain continues after trying these, please DM us with your device’s serial number so we can look into it further.",5,5,5,5,4,4
+138,"Hi, think I’ve got a fake email but I’m not sure. It’s about an app purchase for a high amount and gives me chance to cancel if I sign in with Apple ID.","Hi there! If you received an unexpected email asking you to sign in to cancel a purchase, it’s best to treat it as suspicious. Don’t click any links or enter your Apple ID credentials.
+
+1️⃣ Open **Settings** ► **[your name]** ► **Media & Purchases** ► **View Account** ► **Purchase History** and see if that charge appears.  
+2️⃣ If you don’t see the purchase, you can safely ignore the email.  
+3️⃣ To report a possible phishing message, forward it to phish@apple.com.
+
+If you do see an unfamiliar charge or need further help, please send us a direct message so we can look into your account securely. 🙏🏼",5,5,5,5,5,5
+167,I’m using an Apple charger,"Thanks for reaching out! Could you let us know what’s happening with the charger (e.g., won’t charge, charges intermittently, etc.) and which device you’re using? In the meantime, you can try these quick checks:
+
+1. Make sure the outlet is working (plug something else in).  
+2. Inspect the Lightning/USB‑C connector for debris or damage and give it a gentle clean.  
+3. Verify the cable is fully seated in both the charger and your device.  
+4. If you have another Apple charger or cable handy, give that a try to see if the issue follows the accessory.
+
+Let us know what you find, and we’ll help you troubleshoot further.",5,5,5,4,4,5
+128,"Nope, no restrictions activated. Normal purchases in App Store work perfectly, but this In-App-Purchase won‘t work :(","Sorry you’re having trouble with that in‑app purchase. Here are a few things to try:
+
+1. Make sure you’re signed in with the Apple ID you used for the purchase.  
+2. Verify your payment method is still valid in Settings → [your name] → Payment & Shipping.  
+3. Restart your device and, if possible, reinstall the app.  
+4. Check you have a stable internet connection.
+
+Could you DM us your device model and iOS version so we can dig deeper?",5,5,5,5,5,5
+29,I didn’t preorder it - I was waiting til the day of so I could just complete my album. I purchased 3 songs but it’s still showing the full price if I try to download the album now,"We’re sorry you’re seeing the full album price after buying a few tracks. Here are a couple things to try:
+
+1. Open **Settings** ► **[your name]** ► **Media & Purchases** ► **Purchase History** and confirm the songs are listed under your Apple ID.  
+2. Make sure you’re signed in with the same Apple ID in the Music app, then tap **Library** → **Purchased** → **Music** and look for the album.  
+3. If the album still shows a price, sign out of **Media & Purchases**, restart the device, and sign back in.  
+
+If the issue persists, could you DM us the device model and iOS version you’re using? We’ll take a closer look.",5,5,5,5,5,5
+56,Yes and yes,"Thanks for confirming! Could you let us know which feature or setting you’re trying to use? If you share your device model and iOS version, we can walk you through the exact steps. 🙏🏻",5,5,5,4,4,4
+41,Hello . How do I fix - “There was an error connecting to the Apple ID server” when signing into ?,"Hi there! That error usually means the device can’t reach Apple’s servers. Please try these steps:
+
+1. Verify you have a stable Wi‑Fi or cellular connection.  
+2. Make sure your device’s date, time, and time‑zone are set to “Set Automatically.”  
+3. Restart your iPhone/iPad.  
+4. If the issue persists, go to **Settings → General → Reset → Reset Network Settings** (you’ll need to reconnect to Wi‑Fi afterward).  
+5. Check Apple’s System Status page to see if the Apple ID service is experiencing an outage.  
+
+If you’re still seeing the error, let us know which device and iOS version you’re using so we can dig deeper. Feel free to DM us if you’d prefer a private chat.",5,5,5,5,4,5
+109,my ringer volume doesn’t show when I press the side buttons even though it’s enabled and my alarm isn’t working,"Hi there! Let’s try a few quick steps:
+
+1️⃣ Open **Settings → Sounds & Haptics** and make sure **“Change with Buttons”** is turned on.  
+2️⃣ Verify **Do Not Disturb/Focus** isn’t silencing alerts (Settings → Focus).  
+3️⃣ Restart your iPhone (hold Power + Volume Down until the slide appears, then slide to power off and turn it back on).  
+4️⃣ For the alarm, open the **Clock** app, delete the existing alarm and create a new one, making sure a sound is selected (not “None”).  
+
+If the volume still doesn’t appear or the alarm keeps failing, let us know your iPhone model and iOS version (you can DM us) and we’ll dig deeper. 🙏🏻",5,5,5,5,5,5
+19,no shipping confirmation on my X. Hoping it’s not an issue I should be conflcerned with,"We can help you check the status of your order. Try opening the Apple Store app (or visiting apple.com/shop) and tap **Orders** to see if a shipping confirmation is listed. Also double‑check your email’s spam/junk folder for a message from Apple.  
+
+If you still don’t see anything, please send us a DM with your order number so we can look into it for you.",5,5,5,5,5,5
+16,"since the iOS 11 update, I have to hit the “123” button a few times to get it to stick so I can use punctuation and numbers.","Thanks for letting us know. A few things you can try:
+
+1️⃣ Restart your iPhone.  
+2️⃣ Force‑close any apps and then open one again to reset the keyboard.  
+3️⃣ Reset the keyboard dictionary: Settings → General → Transfer or Reset iPhone → Reset → Reset Keyboard Dictionary.  
+4️⃣ If you have any third‑party keyboards installed, try disabling them temporarily (Settings → General → Keyboard → Keyboards).
+
+Could you also let us know which iPhone model and iOS version you’re on? That’ll help us narrow it down.",5,5,5,5,4,5
+78,good morning from PR when will u be selling Carrier unlocked iPhone X? Thanks 🙏,"Thanks for reaching out! The iPhone X has been discontinued and isn’t sold new on the Apple Store. When you purchase an iPhone outright from Apple or an authorized reseller, it ships unlocked. You can check the current lineup of unlocked iPhones on apple.com or at a nearby Apple Store. Let us know if you have any other questions!",4,5,4,4,5,5
+30,"My battery has been going down so quickly recently, I hate it 😩","We’re sorry to hear that! Try checking Settings → Battery → Battery Health → Maximum Capacity—if it’s below 80 % you may need a service. You can also improve life by turning off Background App Refresh (Settings → General) and limiting location services for apps you don’t need.  
+
+Could you let us know which iPhone model you’re using and the iOS version (Settings → General → About)? That’ll help us pinpoint the next steps. 🙏",5,5,5,5,5,5
+18,can’t type the letter after h in the alphabet. What gives? I’m going insane.,"We’re sorry you’re seeing that keyboard glitch. Try these steps:
+
+1. **Restart** your iPhone/iPad.  
+2. Make sure you’re on the latest iOS version (Settings → General → Software Update).  
+3. Go to **Settings → General → Keyboard** and toggle “Predictive” off, then back on.  
+4. If the problem persists, **reset the keyboard dictionary** (Settings → General → Transfer or Reset iPhone → Reset → Reset Keyboard Dictionary).
+
+Could you let us know which device and iOS version you’re using? If it’s still happening after those steps, feel free to DM us for more detailed help.",5,5,5,5,3,4
+12,⬇️ my iPhone 📱 battery 🔋 drains quickly after iOS 11 update ugh 😑 FYI 🤦🏻‍♀️😭😭😭,"Sorry to hear that! 🙁 Try these steps:
+
+1. Open **Settings > Battery** and see which apps are using the most power.  
+2. Turn off **Background App Refresh** (Settings > General > Background App Refresh).  
+3. Limit **Location Services** for apps that don’t need it (Settings > Privacy > Location Services).  
+4. Enable **Low Power Mode** (Settings > Battery).  
+5. Make sure all your apps are updated in the App Store.
+
+If the drain continues, could you DM us your iPhone model and the exact iOS version (Settings > General > About)? We’ll help you troubleshoot further.",5,5,5,3,4,4
+66,I’m with T-Mobile but need a Verizon iPhone X. Cannot buy because asked for VZW account info. How can I purchase VZW model?,"We’re happy to help! The iPhone X is sold as a carrier‑specific model, so you’ll need to select the Verizon version (or an unlocked model) when you place your order. You can do this on the Apple Store website or at an Apple Store, and you don’t need a Verizon account to buy an unlocked device. If you’d like assistance locating the right option for your region or checking availability, please DM us with your country/region and we’ll point you in the right direction.",4,3,4,5,5,5
+117,"Bugs/glitches, app crashes, slow performance and delay when typing or interacting. I don’t expect you to solve those in DM","Sorry you’re dealing with that—let’s try a few quick fixes:
+
+1. **Restart** your iPhone/iPad. A fresh boot often clears temporary glitches.  
+2. **Update** to the latest iOS version (Settings → General → Software Update). Recent updates include performance and stability improvements.  
+3. **Check storage** (Settings → General → iPhone Storage). Low free space can cause slowdowns and app crashes.  
+4. **Close background apps** you don’t need (swipe up from the bottom and swipe them off the screen).  
+5. **Reset keyboard settings** (Settings → General → Transfer or Reset iPhone → Reset → Reset Keyboard Dictionary) if typing feels laggy.  
+
+If the problem persists, let us know your device model and iOS version so we can dig deeper. 🙏",4,5,5,4,3,2
+118,where on the new iOS can I find apps I purchased and are not on this iPhone?,"You can view all of your past purchases right from the App Store:
+
+1. Open **App Store**.  
+2. Tap your **profile picture** in the top‑right corner.  
+3. Select **Purchased** → **My Purchases**.  
+4. Switch to the **Not on this iPhone** tab to see every app you’ve bought but haven’t installed yet.
+
+From there you can tap the cloud‑download icon to reinstall any missing app. Let us know if you need any more help!",5,5,5,5,5,5
+143,"Extremely unimpressed ! Installed #macOSHighSierra &amp; now my #iMac's #bluetooth #keyboard isn't connected, how do I then log in?","We’re sorry you’re having trouble! Here are a few quick steps to get your Bluetooth keyboard working again after the High Sierra upgrade:
+
+1. **Use a wired keyboard or the on‑screen keyboard** to log in once (Apple Menu → System Preferences → Keyboard → “Show keyboard and emoji viewers in menu bar”).  
+2. **Turn Bluetooth off and on again**: Click the Bluetooth icon in the menu bar → Turn Bluetooth Off → Turn Bluetooth On.  
+3. **Remove and re‑pair the keyboard**: System Preferences → Bluetooth, hover over the keyboard, click the “X” to remove it, then put the keyboard in pairing mode and add it again.  
+4. **Reset the Bluetooth module**: Hold **Shift + Option**, click the Bluetooth menu bar icon, choose **Debug → Reset the Bluetooth module**, then restart your iMac.  
+5. **Reset NVRAM/PRAM**: Shut down, then power on and immediately hold **Option + Command + P + R** for about 20 seconds.  
+6. **Reset the SMC** (if the above doesn’t help): Shut down, unplug power, wait 15 seconds, plug back in, wait 5 seconds, then turn the iMac on.
+
+If the keyboard still won’t connect, let us know your iMac model and the exact macOS version you’re running and we’ll dig deeper. 🙏🏼
+
+— Apple Support 🌟",5,5,5,5,5,5
+164,"Pretty much all devices. Speakers, headphones, car. My iPad or iPhone won’t pick up the Bluetooth.","Sorry you’re having trouble with Bluetooth. Try these steps:
+
+1. Toggle Bluetooth off → on (Settings > Bluetooth).  
+2. Restart your iPhone/iPad.  
+3. If the problem persists, go to **Settings > General > Reset > Reset Network Settings** (you’ll need to re‑enter Wi‑Fi passwords).  
+4. Make sure you’re running the latest iOS version (Settings > General > Software Update).  
+
+If it still won’t pair, let us know the device model and iOS version so we can dig deeper. 🙏🏻",5,5,5,4,5,5
+38,"So, #ios11 made my 6s useless. Screen freezes, apps dont respond, everything is very slow. Thank you guys great work","We’re sorry you’re experiencing that slowdown. Try these steps:
+
+1. **Force‑restart** your iPhone 6s (press Volume‑Down + Side button, hold until the Apple logo appears).  
+2. **Check storage** in Settings → General → iPhone Storage – aim for at least 10‑15 % free space.  
+3. **Update to the latest iOS 11 release** (Settings → General → Software Update).  
+4. If it’s still sluggish, go to Settings → General → Reset → Reset All Settings (your data stays, but system settings are refreshed).
+
+If the issue persists, please DM us with your device model and iOS version so we can dig deeper.",5,5,5,5,5,5
+135,"That didn’t do anything, the biggest disappointment is I had most of those songs downloaded to my phone and it deleted them","We’re sorry to hear your downloads disappeared. Could you let us know which device and iOS version you’re using, and whether the songs were purchased from iTunes or streamed via Apple Music?  
+
+In the meantime, try these steps:
+
+1. Open **Settings → Music** and make sure **Sync Library** (or iCloud Music Library) is turned on.  
+2. In the Music app, tap **Library → Downloaded** and pull down to refresh – any previously purchased tracks should re‑appear.  
+3. If the songs were bought from iTunes, you can re‑download them from the **Purchased** section of the App Store.  
+
+If the issue persists, please DM us with the device details so we can look into it further.",5,5,5,5,5,5
