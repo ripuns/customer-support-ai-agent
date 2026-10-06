@@ -128,5 +128,5 @@ against the file it produces, then `classify_triples.py` against `build_threads.
   heavy skew toward `software_bug`/`battery_performance`.
 - **Depends on**: `data/processed/apple_triples_classified.csv` (produced by
   `classify_triples.py`); `src/intents.py`.
-- **Depended on by**: Not yet consumed by other code — `eval/golden_set.csv` is hand-labeled next,
-  then consumed by the (not yet added) evaluation harness.
+- **Depended on by**: `eval/golden_set.csv` is hand-labeled next, then consumed by the evaluation
+  harness (`eval/run_harness.py`).

@@ -14,7 +14,8 @@ place to import from when building the eval harness in `eval/`.
 
 ## How
 
-Modules here will be composed by an eventual top-level agent entry point (not yet added):
+Modules here are composed by the top-level agent pipeline (see `eval/run_harness.py` for the
+entry point that wires them together):
 
 1. A message comes in.
 2. It's classified against `INTENT_LABELS`.
@@ -41,8 +42,7 @@ Modules here will be composed by an eventual top-level agent entry point (not ye
   follow-up turns (e.g. "Yes", "Thanks!") that appear in the `customer_followup` field of
   `apple_triples.csv` are not new intents and are explicitly out of scope.
 - **Depends on**: Nothing (pure data/constants module).
-- **Depended on by**: Not yet consumed by other code — will be imported by the classifier module
-  once added.
+- **Depended on by**: `classifier.py`, `drafter.py`, `escalation.py`, `keyword_classifier.py`.
 
 ### `llm.py`
 - **What it does (current)**: Wraps the Groq API behind a single
@@ -163,11 +163,10 @@ here: check `client.models.list()` for another candidate model, burst-test it, s
   - 2/5 matched the hand-labeled `intent_label` on this tiny sample; the mismatches were on
     genuinely ambiguous messages (e.g. a complaint mixing a store-visit anecdote with a software
     complaint) rather than clear classifier errors.
-  - Real accuracy numbers come from the full evaluation harness (not yet added) against all 175
-    golden-set rows, not from this spot check.
+  - Real accuracy numbers come from the full evaluation harness (`eval/run_harness.py`) against all
+    175 golden-set rows, not from this spot check — see `report/report.md` for the full-run results.
 - **Depends on**: `src/intents.py`, `src/llm.py`.
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added) drafter,
-  escalation policy, and evaluation harness.
+- **Depended on by**: `drafter.py`, `escalation.py`, `eval/run_harness.py`.
 
 ### `retrieval.py`
 - **What it does**: `RetrievalIndex`:
@@ -178,9 +177,9 @@ here: check `client.models.list()` for another candidate model, burst-test it, s
     top-k historical `{customer_msg, brand_reply, customer_followup, similarity}` triples, most
     similar first.
 - **Purpose**: This is what "grounds" the agent's drafted replies in how AppleSupport has
-  historically resolved similar issues, per the assignment's core requirement — the drafter (not
-  yet added) will feed these retrieved triples to the LLM as context rather than letting it
-  generate a reply from general knowledge alone.
+  historically resolved similar issues, per the assignment's core requirement — `drafter.py` feeds
+  these retrieved triples to the LLM as context rather than letting it generate a reply from
+  general knowledge alone.
 - **Why TF-IDF instead of an embeddings API**:
   - Embedding all 5,000 `apple_triples.csv` rows through the Gemini embeddings API would hit the
     same free-tier rate-limit wall documented in `llm.py`'s rate-limit finding, at 5,000x the scale
@@ -252,8 +251,7 @@ here: check `client.models.list()` for another candidate model, burst-test it, s
   - The drafted reply's opening closely mirrored the real historical reply's tone ("We'd like to
     look into this with you..."), then appropriately added a DM handoff.
 - **Depends on**: `src/intents.py`, `src/llm.py`, `src/retrieval.py`.
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
-  evaluation harness.
+- **Depended on by**: `eval/run_harness.py`.
 
 ### `escalation.py`
 - **What it does**: `decide_escalation(customer_msg, intent, retrieval_index,
@@ -336,8 +334,9 @@ matching red-flag substring).
   already answers the right question directly.
 
 #### Validation on small samples (n=3/8/18) using remaining free-tier quota
-(full `--full` run blocked on LLM API access — see project status; do not treat these as final
-report numbers)
+(these were early checks run before the full `--full` 175-row harness run was feasible on the
+Gemini free tier; see `report/report.md` for the final full-run numbers, which supersede the
+small-sample results below)
 - On a fixed n=8 sample, results before and after removing the confidence check were identical
   (precision 0.5, recall 0.33, 1 TP/1 FP/2 FN), confirming the confidence signal genuinely never
   affected any outcome on that sample — consistent with the diagnosis above.
@@ -376,16 +375,15 @@ report numbers)
   was picked so the trivial baseline's escalation precision/recall are both meaningfully
   measurable against the golden set (always-escalate would make recall trivially 100% and give no
   useful comparison point).
-- **Preview numbers (not final — golden set is still partially `[DRAFT]`)**: Against the current
-  175-row `eval/golden_set.csv`: intent accuracy 38/175 (21.7%), escalation accuracy 105/175
-  (60.0%).
+- **Numbers (against the full, fully human-reviewed 175-row `eval/golden_set.csv`)**: intent
+  accuracy 38/175 (21.7%), escalation accuracy 105/175 (60.0%). See `report/report.md` for the
+  final comparison against the simple baseline and real agent.
   - The escalation number looks deceptively decent only because `auto` happens to be the majority
     label in this labeled set (~58%) — flagged here as exactly the kind of number that needs the
-    report's mandatory "what's misleading about my headline number" treatment: a real agent beating
-    60% by a small margin would not actually be demonstrating real escalation judgment.
+    report's "what's misleading about my headline number" treatment: a real agent beating 60% by a
+    small margin would not actually be demonstrating real escalation judgment.
 - **Depends on**: Nothing (hardcoded constants only).
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
-  evaluation harness.
+- **Depended on by**: `eval/run_harness.py`.
 
 ### `baseline_simple.py`
 - **What it does**: The "simple baseline" required by the assignment.
@@ -398,8 +396,7 @@ report numbers)
     attempt" rather than a strawman.
 - **Purpose**: Sits strictly between the trivial baseline (the floor) and the real agent, so results
   show a 3-point comparison (trivial / simple / real), not just two.
-- **Preview numbers (not final — golden set is still partially `[DRAFT]`)**: Against the current
-  175-row `eval/golden_set.csv`:
+- **Numbers (against the full, fully human-reviewed 175-row `eval/golden_set.csv`)**:
   - Intent accuracy 141/175 (80.6%) — notably strong, and verified not to be circular (the 35
     hand-labeled rows alone score even higher, 30/35 = 85.7%, vs. 111/140 = 79.3% on the
     assistant-drafted rows, so the keyword classifier isn't just agreeing with its own earlier
@@ -412,8 +409,7 @@ report numbers)
   - This equal-accuracy-different-reasons result is a concrete, ready-made example for the report's
     "what's misleading about my headline number" section.
 - **Depends on**: `src/keyword_classifier.py`, `src/intents.py`.
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
-  evaluation harness.
+- **Depended on by**: `eval/run_harness.py`.
 
 ### `judge.py`
 - **What it does**: `judge_reply(customer_msg, agent_reply)` — LLM-as-judge scoring a drafted
@@ -426,7 +422,7 @@ report numbers)
 - **Purpose**: Satisfies the assignment's "LLM-as-judge rubric for reply quality" requirement.
   - Kept to exactly 3 fixed dimensions (not open-ended scoring) so results are comparable across
     replies and so a human can be asked the same 3 questions for the judge-vs-human agreement check
-    (not yet added) required by the assignment.
+    (`eval/judge_agreement.py`) required by the assignment.
 - **Verified against real data**: Tested on a clearly good vs. clearly bad synthetic reply pair for
   the same customer message.
   - Good reply (asks for device/iOS version, AppleSupport's real pattern): 5/5/5.
@@ -434,7 +430,7 @@ report numbers)
     correctly low on the two dimensions the reply actually fails, while fairly not penalizing
     "correct" since the bad reply contains no false claims, just no substance.
   - This directional sanity check is not the same as measuring real judge-vs-human agreement on
-    golden-set examples, which the evaluation harness still needs to do.
+    golden-set examples; that is done separately in `eval/judge_agreement.py` (see
+    `eval/judge_agreement_results.json` for the real agreement numbers).
 - **Depends on**: `src/llm.py`.
-- **Depended on by**: Not yet consumed by other code — will be used by the (not yet added)
-  evaluation harness.
+- **Depended on by**: `eval/run_harness.py`.

@@ -19,11 +19,12 @@ submission documents.
   - Sections 1, 3, 4, 5, and 6 (problem framing, results, failure analysis, "what's misleading
     about my headline number," and next-week plan) are filled in with real numbers from
     `eval/results_full.json` (the completed `--full` 175-row harness run).
-  - **Part of Section 2 (judge-vs-human agreement) is still `[PENDING]`** — `eval/judge_agreement.py`
-    is built and ready (see `eval/README.md`), but the hand-scoring pass itself has not been run
-    yet. Do not treat this report as submission-final until that's filled in.
+  - Section 2 (judge-vs-human agreement) is complete — `eval/judge_agreement.py` was run against a
+    40-row hand-scored sample, with results committed in `eval/judge_agreement_results.json` (see
+    `eval/README.md`).
 
 ## File responsibilities
 - `decision_log.md` — 15 decisions, chronological, each with what was decided and why.
 - `report.md` — the 6-page report. Results are real (from `eval/results_full.json`); judge-vs-human
-  agreement is pending hand-scoring. See "How" above.
+  agreement is also real, from the completed hand-scoring pass (`eval/judge_agreement_results.json`).
+  See "How" above.

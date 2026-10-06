@@ -1,4 +1,4 @@
-# Hiver SDE Intern Assignment — Session Summary (as of 2026-09-16)
+# Development Log (as of 2026-09-16)
 
 ## What this is
 Repo: `D:\customer-support-ai-agent` — AI customer support agent for **AppleSupport**, built from

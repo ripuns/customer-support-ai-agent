@@ -30,13 +30,13 @@ data pipeline and the agent implementation so it can catch regressions in either
 - The remaining 141 rows were drafted by the assistant applying that same standard (see
   `scripts/_draft_labels.py` — every drafted row's `intent_label`, `auto_or_escalate`, and
   `escalate_reason` is a literal, auditable judgment call).
-- As of this update, the project author has reviewed and confirmed spreadsheet rows 2-100 (df
-  indices 0-98) — the `[DRAFT]` prefix has been removed from `reply_quality_note` for those rows,
-  correcting any the assistant got wrong along the way (see conversation history for the specific
-  corrections made during review, e.g. rows initially escalated on "many people report this" or
-  tone alone that were fixed to `auto`).
-- **Spreadsheet rows 101-175 (76 rows) are still marked `[DRAFT]` and not yet human-reviewed** — do
-  not treat those rows as final for grading/reporting purposes until reviewed.
+- All 175 rows have since been reviewed and confirmed by the project author — the `[DRAFT]` prefix
+  has been removed from `reply_quality_note` across the full file, correcting any the assistant got
+  wrong along the way (see conversation history / decision log for the specific corrections made
+  during review, e.g. rows initially escalated on "many people report this" or tone alone that were
+  fixed to `auto`).
+- The full, human-reviewed 175-row set is what the `--full` evaluation harness run and the report's
+  numbers are based on.
 
 ## File responsibilities
 
@@ -111,8 +111,9 @@ the specific examples that shaped this.
   label decisions for `golden_set.csv`, kept (not deleted after running) as an audit trail of the
   reasoning behind each drafted `intent_label`/`auto_or_escalate`/`escalate_reason`. Applies the
   labeling standard above to a hardcoded `tweet_id -> (intent, decision, reason, note)` dict, then
-  writes those values into `golden_set.csv` and prefixes each drafted `reply_quality_note` with
-  `[DRAFT]`.
+  writes those values into `golden_set.csv` and originally prefixed each drafted
+  `reply_quality_note` with `[DRAFT]` (that prefix has since been removed from `golden_set.csv` as
+  rows were reviewed and confirmed — see "Labeling status" above).
 - **Purpose**: Traceability — if a drafted label looks wrong during review, this file shows exactly
   what reasoning produced it, without needing to reconstruct it from conversation history.
 - **Depends on**: `eval/golden_set.csv` (reads and overwrites it in place).
@@ -178,15 +179,16 @@ the specific examples that shaped this.
 
 - **Depends on**: `eval/golden_set.csv`; `src/baseline_trivial.py`, `src/baseline_simple.py`,
   `src/classifier.py`, `src/drafter.py`, `src/escalation.py`, `src/judge.py`, `src/retrieval.py`.
-- **Depended on by**: `judge_agreement.py` (reads `eval/.checkpoints/real_agent_full.jsonl`, this
-  harness's per-row checkpoint output, to sample already-judged replies). Its output
-  (`results_full.json`) is referenced by `report/report.md`.
+- **Depended on by**: Its output (`results_full.json`) is referenced by `report/report.md`.
+  `judge_agreement.py` is a separate, independent check (drafts and judges its own sample rather
+  than reusing this harness's checkpoint output) — see that file's entry below.
 
 ### `judge_agreement.py`
 - **What it does**: The required judge-vs-human agreement check. Two subcommands:
-  - `sample --n 50` — reads `eval/.checkpoints/real_agent_full.jsonl` (this project's `--full`
-    harness run's per-row checkpoint, produced as a side effect of the checkpointing above) and
-    writes `eval/judge_agreement_sample.csv` with the customer message, the judge's existing
+  - `sample --n <n>` — for each sampled row, drafts a reply and judges it together in one pass
+    (rather than reusing a harness checkpoint's judge score), so the judge score in the output
+    always matches the exact reply text a human then reads and scores. Writes
+    `eval/judge_agreement_sample.csv` with the customer message, the drafted reply, the judge's
     grounded/correct/actionable scores, and three empty `human_*` columns to hand-fill.
   - `score` — reads the filled-in CSV and computes, per dimension: exact-match %, within-1-point %,
     and linear-weighted Cohen's kappa (the standard chance-corrected agreement metric for ordinal
@@ -194,11 +196,10 @@ the specific examples that shaped this.
 - **Purpose**: Satisfies the assignment's explicit "judge-vs-human agreement" requirement — without
   this, the LLM-judge's reply-quality scores throughout this report would be trusted without any
   check on whether they track human judgment at all.
-- **Why no new API calls**: sampling reuses judge scores already computed during
-  `eval/run_harness.py --full` (read from its checkpoint file) rather than re-drafting or
-  re-judging replies — the only new work required is the human's manual scoring pass, not
-  additional LLM calls.
-- **Depends on**: `eval/.checkpoints/real_agent_full.jsonl` (produced by `run_harness.py --full`),
-  `eval/golden_set.csv`.
-- **Depended on by**: `report/report.md`'s judge-vs-human agreement figure, once the hand-scoring
-  pass is run.
+- **Completed**: run against a 40-row sample, hand-scored by the project author
+  (`eval/judge_agreement_sample.csv`, committed). Results in `eval/judge_agreement_results.json`
+  (also committed) — see `report/report.md`'s Results and Failure Analysis sections for what the
+  numbers mean (raw agreement looked reasonable, but linear-weighted kappa revealed the LLM judge's
+  scores are compressed near the top of the scale).
+- **Depends on**: `eval/golden_set.csv`, `src/drafter.py`, `src/judge.py`.
+- **Depended on by**: `report/report.md`'s judge-vs-human agreement figure.
